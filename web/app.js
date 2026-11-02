@@ -332,17 +332,31 @@ function tilePasses(ev) {
     <span class="evtot"><b>${T.persons}</b></span>`;
   const body = `<div class="tp-list">${rows.map(r => {
       const bs = bStatus(r.b), chip = r.st.done ? `<span class="chip info">${esc(r.st.why)}</span>` : r.b.status === "paid" ? `<span class="chip ok">${r.st.ok ? "Ready" : esc(r.st.why)}</span>` : `<span class="chip ${bs.cls}">${esc(bs.label)}</span>`;
-      return `<button type="button" class="tp-row" data-tq="${r.b.id}:${r.pp.n}"><span class="tp-qr">${qrSvg(passUrl(r.b, r.pp.n))}</span>
-        <span class="tp-txt"><b>${r.pp.type} ${r.pp.n}</b><small class="mono">${esc(tok(r.b, r.pp.n))}</small></span>${chip}</button>`;
+      return `<button type="button" class="tp-row" data-tq="${r.b.id}:${r.pp.n}"><span class="tp-ic"><svg class="ic"><use href="#i-scan"/></svg></span>
+        <span class="tp-txt"><b>${r.pp.type} ${r.pp.n}</b><small class="mono">${esc(tok(r.b, r.pp.n))}</small></span>${chip}<span class="tp-go">QR ›</span></button>`;
     }).join("")}</div>
     <div class="tp-act">${ready > 1 && !past ? `<button class="btn sm primary" type="button" data-together="${ev.id}"><svg class="ic sm"><use href="#i-scan"/></svg>Collect ${ready} together</button>` : ""}
       <a class="btn sm" href="#mypasses" data-gotomine="${ev.id}">Payment & details</a></div>`;
   return collapsible("tp:" + ev.id, isOpen("tp:" + ev.id, false), head, body, "tpass");
 }
+/* resident: ONE QR on screen at a time, so the counter camera cannot pick up a neighbour's pass */
 function personQrSheet(b, n) {
-  openSheet(`<header><div><div class="muted small">Show this QR at the counter</div><h2>${persons(b)[n - 1].type} ${n} <span class="muted small">of ${b.adults + b.children}</span></h2></div><button class="x" type="button" aria-label="Close">×</button></header>
-    <div class="tickets one">${ticket(b, n)}</div>`);
+  const tot = b.adults + b.children, st = personState(b, n);
+  const o = openSheet(`<header><div><div class="muted small"><span class="gu">કાઉન્ટર પર આ QR બતાવો</span> · Show this QR at the counter</div><h2>${persons(b)[n - 1].type} ${n} <span class="muted small">of ${tot}</span></h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+    ${st.done ? `<div class="notice small"><b>${esc(st.why)}.</b> This person's meal for today is already collected.</div>` : ""}
+    <div class="tickets one">${ticket(b, n)}</div>
+    ${tot > 1 ? `<div class="qrnav"><button class="btn" type="button" data-qn="${n - 1}"${n === 1 ? " disabled" : ""}>‹ Previous</button><span class="small muted">${n} / ${tot}</span><button class="btn primary" type="button" data-qn="${n + 1}"${n === tot ? " disabled" : ""}>Next person ›</button></div>
+      <p class="small muted" style="text-align:center;margin:0">Show one QR at a time. For all ${tot} together, use <b>Collect together</b>.</p>` : ""}`);
+  $$("[data-qn]", o).forEach(x => x.onclick = () => personQrSheet(b, +x.dataset.qn));
 }
+/* list of persons without visible QR codes; tap one to open its QR */
+function ticketList(b) {
+  return `<div class="tlist">${persons(b).map(pp => { const st = personState(b, pp.n), bs = bStatus(b);
+    const chip = st.done ? `<span class="chip info">${esc(st.why)}</span>` : b.status === "paid" ? `<span class="chip ok">${st.ok ? "Ready" : esc(st.why)}</span>` : `<span class="chip ${bs.cls}">${esc(bs.label)}</span>`;
+    return `<button type="button" class="tp-row" data-showqr="${b.id}:${pp.n}"><span class="tp-ic"><svg class="ic"><use href="#i-scan"/></svg></span>
+      <span class="tp-txt"><b>${pp.type} ${pp.n}</b><small class="mono">${esc(tok(b, pp.n))}</small></span>${chip}<span class="tp-go">Show QR ›</span></button>`; }).join("")}</div>`;
+}
+document.addEventListener("click", e => { const q = e.target.closest("[data-showqr]"); if (!q) return; const [id, n] = q.dataset.showqr.split(":"); const b = S.bookings.find(x => x.id === id); if (b) personQrSheet(b, +n); });
 function renderResident() {
   renderAccount();
   const box = $("#resEvents");
@@ -514,7 +528,7 @@ function confirmSheet(b, asAdmin) {
         <div class="sumrow"><span>Earlier</span><span>${pplTxt(T.adults - b.adults, T.children - b.children)}</span><b class="num">${inr(T.amount - b.amount)}</b></div>
         <div class="sumrow now"><span>Just added</span><span>${pplTxt(b.adults, b.children)}</span><b class="num">${inr(b.amount)}</b></div>
         <div class="sumrow total-line"><span>Total now</span><span>${pplTxt(T.adults, T.children)}</span><b class="num">${inr(T.amount)}</b></div></div>`; })()}
-    ${passCard(b)}
+    ${asAdmin ? passCard(b) : `<div class="passwrap"><div class="spread"><div><b class="gu">${esc((evById(b.event_id) || {}).name_gu || (evById(b.event_id) || {}).name_en || "")}</b> · ${esc(b.flat)} · ${esc(b.name)}<div class="small muted">${b.adults + b.children} person${b.adults + b.children === 1 ? "" : "s"} · <span class="mono">${esc(b.pass_no)}</span></div></div><span class="chip ${bStatus(b).cls}">${esc(bStatus(b).label)}</span></div>${ticketList(b)}</div>`}
     ${+b.amount > 0 ? `<div class="notice small"><span class="gu">${inr(b.amount)} કમિટી ડેસ્ક પર ચૂકવો. ${mobile ? "પેમેન્ટ પછી પાસ માન્ય થશે." : "પેમેન્ટ પછી પ્રિન્ટેડ પાસ મળશે."}</span><br>Pay ${inr(b.amount)} at the committee desk${(S.settings.upi || {}).enabled ? " or by UPI below" : ""}. ${mobile ? "Your mobile pass becomes valid once payment is confirmed." : "Your printed pass is handed over after payment."}${desk.place ? "<br><b>Desk:</b> " + esc(desk.place) : ""}${desk.contact ? "<br><b>Contact:</b> " + esc(desk.contact) : ""}</div>` : `<div class="notice small">This is a free pass.</div>`}
     ${upiBlock(b)}
     ${policyBox(evById(b.event_id), b)}
@@ -563,8 +577,8 @@ function myBookingCard(b, i, n, dfltOpen) {
     <span class="bkmain"><b>${b.adults + b.children} pass${b.adults + b.children === 1 ? "" : "es"}</b><small>${b.adults} adult${b.adults === 1 ? "" : "s"}${b.children ? ", " + b.children + " child" + (b.children > 1 ? "ren" : "") : ""} · ${esc(sessLabel(ev, b.sessions))}</small><small class="mono">${esc(b.pass_no)} · ${b.pass_type === "physical" ? "Printed" : "Mobile"}</small></span>
     <span class="bkside"><b class="num">${+b.amount > 0 ? inr(b.amount) : "Free"}</b><span class="chip ${st.cls}">${esc(st.label)}</span></span>`;
   const passes = cancelled ? `<p class="small muted" style="margin:0">This booking was cancelled.</p>` : collapsible("pp:" + b.id, isOpen("pp:" + b.id, !due || n === 1),
-    `<span class="subh"><svg class="ic sm"><use href="#i-ticket"/></svg><span><span class="gu">પાસ</span> · Passes <small>${b.adults + b.children} QR code${b.adults + b.children === 1 ? "" : "s"}, one per person</small></span></span>`,
-    `<div class="tickets">${persons(b).map(p => ticket(b, p.n)).join("")}</div>`, "sub");
+    `<span class="subh"><svg class="ic sm"><use href="#i-ticket"/></svg><span><span class="gu">પાસ</span> · Passes <small>${b.adults + b.children} person${b.adults + b.children === 1 ? "" : "s"} · tap one to show its QR</small></span></span>`,
+    ticketList(b), "sub");
   const pay = collapsible("py:" + b.id, isOpen("py:" + b.id, due),
     `<span class="subh"><span class="rs">₹</span><span><span class="gu">ચુકવણી</span> · Payment <small>${cancelled ? "Cancelled" : due ? "Due " + inr(b.amount) : +b.amount > 0 ? "Paid " + inr(b.amount) + (b.pay_mode ? " · " + b.pay_mode.toUpperCase() : "") : "Free"}</small></span></span>`,
     paySection(b), "sub pay");
@@ -1204,6 +1218,12 @@ async function handleGroupScan(t, auto, force) {
 /* live camera */
 let camStream = null, camTimer = 0, detector = null;
 try { detector = ("BarcodeDetector" in window) ? new BarcodeDetector({ formats: ["qr_code"] }) : null; } catch (e) { detector = null; }
+let manyAt = 0;
+function manyWarn() {
+  const now = Date.now(); if (now - manyAt < 2500) return; manyAt = now;
+  if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+  $("#ctScan").innerHTML = `<div class="result stop" role="status"><div class="big">✕ More than one QR in view</div><div class="small">Nothing was marked. Ask the resident to open <b>one pass at a time</b> (tap a person → Show QR), or use <b>Collect together</b> for one QR covering several people.</div></div>`;
+}
 async function startCam() {
   try { camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }, audio: false }); }
   catch (e) { $("#camHint").textContent = "Camera not available. Allow camera access in the browser, or use “From photo / screenshot”."; return; }
@@ -1214,7 +1234,9 @@ async function startCam() {
     if (!camStream) return;
     if (v.readyState >= 2 && !scanBusy) {
       let txt = null;
-      if (detector) { try { const r = await detector.detect(v); if (r[0]) txt = r[0].rawValue; } catch (e) {} }
+      let many = false;
+      if (detector) { try { const r = await detector.detect(v); const uniq = [...new Set(r.map(x => x.rawValue))]; if (uniq.length > 1) many = true; else if (uniq[0]) txt = uniq[0]; } catch (e) {} }
+      if (many) { manyWarn(); camTimer = setTimeout(tick, 400); return; }
       if (!txt) { const w = 640, h = Math.round(640 * v.videoHeight / v.videoWidth) || 480; cv.width = w; cv.height = h; g.drawImage(v, 0, 0, w, h); const r = jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" }); if (r) txt = r.data; }
       if (txt) { $("#camBox").classList.add("hit"); setTimeout(() => $("#camBox").classList.remove("hit"), 400); handleScan(txt, $("#ctAuto").checked); }
     }

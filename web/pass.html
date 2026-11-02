@@ -22,6 +22,9 @@
   .pv .tk-b .qr{width:min(78vw,300px);height:min(78vw,300px);margin:0 auto;padding:10px}
   .pv .kv{font-size:1rem}
   .bright{font-size:.85rem;color:var(--muted);text-align:center}
+.pnav{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 16px}
+.pnav a{padding:7px 12px;border-radius:999px;border:1px solid #cfdccc;color:#1F5A33;text-decoration:none;font-weight:600;font-size:.85rem}
+.pnav a.on{background:#1F5A33;color:#fff;border-color:#1F5A33}
 </style>
 </head>
 <body>
@@ -47,7 +50,7 @@ window.addEventListener("hashchange", () => location.reload());
     const total = p.adults + p.children, people = [];
     for (let i = 0; i < p.adults; i++) people.push({ n: people.length + 1, type: "Adult", gu: "મોટા" });
     for (let i = 0; i < p.children; i++) people.push({ n: people.length + 1, type: "Child", gu: "બાળક" });
-    const show = p.person ? people.filter(x => x.n === p.person) : people;
+    const show = people.filter(x => x.n === (p.person || 1));   // one QR on screen at a time
     const st = p.status === "paid" ? (p.amount > 0 ? ["ok","Paid"] : ["ok","Free"]) : p.status === "cancelled" ? ["bad","Cancelled"] : ["warn","Payment pending"];
     const dates = [...new Set(p.sessions.map(s => fd(s.date)))].join(", ");
     const base = location.href.replace(/#.*$/, "");
@@ -59,7 +62,7 @@ window.addEventListener("hashchange", () => location.reload());
         <dt>Date</dt><dd>${esc(dates)}</dd><dt>Session</dt><dd>${esc(p.sessions.map(s => s.label || s.meal).join(", "))}</dd>${p.event.venue ? `<dt>Venue</dt><dd>${esc(p.event.venue)}</dd>` : ""}</dl></div>
       <div class="tk-f"><span class="mono">${esc(p.pass_no)}-${x.n}</span><span class="chip ${st[0]}">${st[1]}</span></div></div>`).join("")
       + `<p class="bright gu">કાઉન્ટર પર આ QR બતાવો · Show this QR at the counter. Turn screen brightness up.</p>`
-      + (p.person && total > 1 ? `<p class="bright"><a href="${esc(base + "#" + p.pass_no)}">Show all ${total} passes of this booking</a></p>` : "");
+      + (total > 1 ? `<p class="bright">Other people on this booking — show one QR at a time:</p><div class="pnav">${people.map(x => `<a class="${x.n === (p.person || 1) ? "on" : ""}" href="${esc(base + "#" + p.pass_no + "-" + x.n)}">${x.type} ${x.n}</a>`).join("")}</div>` : "");
   } catch (e) {
     box.innerHTML = `<div class="empty"><b>Pass not found</b>Check the link, or contact the committee desk.</div>`;
   }

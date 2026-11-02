@@ -242,3 +242,9 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .policy.mini span.warn::before{background:var(--warn)}.policy.mini span.bad::before{background:var(--bad)}.policy.mini span.info::before{background:var(--info)}
 #cxPrev{margin-top:8px;font-size:.78rem}
 #cxUntilF[hidden]{display:none}
+
+/* one QR at a time */
+.tlist{display:flex;flex-direction:column;gap:6px}
+.tp-ic{width:38px;height:38px;flex:none;border-radius:10px;background:var(--leaf-tint);color:var(--leaf);display:grid;place-items:center}
+.tp-go{font-size:.78rem;font-weight:700;color:var(--leaf);white-space:nowrap}
+.qrnav{display:flex;align-items:center;justify-content:space-between;gap:8px}

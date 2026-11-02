@@ -23,14 +23,14 @@ def check(cond, msg):
 IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
 
-def page_for(b, role, logged_in=True, w=400, h=860, ua=None, sw=False):
+def page_for(b, role, logged_in=True, w=400, h=860, ua=None, sw=False, init=""):
     # service workers fetch files themselves, bypassing the test's stand-in for Supabase — keep them off except for the install checks
     opts = {"viewport": {"width": w, "height": h}, "service_workers": "allow" if sw else "block"}
     if ua: opts.update(user_agent=ua, is_mobile=True, has_touch=True, device_scale_factor=2)
     ctx = b.new_context(**opts)
     p = ctx.new_page(); errs = []
     p.on("pageerror", lambda e: errs.append(str(e)))
-    p.add_init_script(f"window.__MOCK_ROLE={role!r};window.__MOCK_LOGGED_IN={'true' if logged_in else 'false'};")
+    p.add_init_script(f"window.__MOCK_ROLE={role!r};window.__MOCK_LOGGED_IN={'true' if logged_in else 'false'};" + init)
     p.route("**/vendor/supabase.js", lambda r: r.fulfill(status=200, content_type="application/javascript", body=MOCK))
     p.route("**/config.js", lambda r: r.fulfill(status=200, content_type="application/javascript", body=CONFIG))
     p.route("https://fonts.googleapis.com/**", lambda r: r.abort())
@@ -69,7 +69,7 @@ with sync_playwright() as pw:
     check(p.inner_text("#tAmt").strip() == "₹900", "package price preview (2 adults, all sessions = ₹900)")
     p.screenshot(path=str(SHOTS / "2_booking_form.png"))
     p.click("#fGo"); p.wait_for_timeout(600)
-    check(p.locator("#ovl .tk").count() == 2, "confirmation shows one QR ticket per person")
+    check(p.locator("#ovl [data-showqr]").count() == 2 and p.locator("#ovl .qr svg").count() <= 1, "confirmation lists one row per person, no wall of QR codes")
     p.screenshot(path=str(SHOTS / "3_confirmed.png"))
     p.click("#ovl .x2"); p.wait_for_timeout(900)
     check(p.locator("#myList .mybk").count() == 1, "new booking appears under My passes")
@@ -112,7 +112,13 @@ with sync_playwright() as pw:
     p.fill("#myQ", "zzz-nothing"); p.wait_for_timeout(150)
     check("No passes match" in p.inner_text("#myList"), "search with no match says so")
     p.fill("#myQ", ""); p.wait_for_timeout(150)
-    first_pass = p.inner_text("#myList .mybk .tk-f .mono >> nth=0").strip()
+    check(p.locator("#myList .tk").count() == 0, "My passes shows no QR codes until a person is tapped (one QR at a time)")
+    p.evaluate("document.querySelector('#myList [data-showqr]').click()"); p.wait_for_timeout(250)
+    check(p.locator("#ovl .tk .qr svg").count() == 1 and p.is_visible("#ovl [data-qn]"), "tapping a person shows exactly one QR with next / previous")
+    p.locator("#ovl [data-qn]:not([disabled])").last.click(); p.wait_for_timeout(200)
+    check("2 / 2" in p.inner_text("#ovl .qrnav") and p.locator("#ovl .tk").count() == 1, "'Next person' swaps to the next QR, still one on screen")
+    p.keyboard.press("Escape"); p.wait_for_timeout(150)
+    first_pass = p.inner_text("#myList .mybk .tp-txt .mono >> nth=0").strip()
     p.fill("#myQ", first_pass[-7:]); p.wait_for_timeout(150)
     check(p.locator("#myList .mybk").count() == 1, "search by pass number narrows to that booking")
     p.fill("#myQ", ""); p.wait_for_timeout(150)
@@ -214,6 +220,25 @@ with sync_playwright() as pw:
     p.screenshot(path=str(SHOTS / "12_group_scan.png"), full_page=True)
     check(errs == [], f"no page errors {errs}")
 
+
+    print("Scanner: two QR codes in view")
+    fake_cam = """
+      window.__codes = [];
+      window.BarcodeDetector = class { constructor() {} async detect() { return window.__codes.map(v => ({ rawValue: v })); } };
+      navigator.mediaDevices.getUserMedia = async () => { const c = document.createElement('canvas'); c.width = 64; c.height = 48; const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*999); g.fillRect(0,0,64,48); }, 50); return c.captureStream(10); };
+    """
+    p, errs = page_for(b, "super", init=fake_cam)
+    pn = p.evaluate("window.__seed.b.pass_no")
+    p.click("#tabs [data-tab=counter]"); p.wait_for_timeout(200); p.click("#camStart"); p.wait_for_timeout(500)
+    p.evaluate(f"window.__codes = ['https://x/pass.html#{pn}-1', 'https://x/pass.html#{pn}-2']"); p.wait_for_timeout(900)
+    check("More than one QR in view" in p.inner_text("#ctScan"), "two passes in the camera view: warning shown")
+    check(p.evaluate("window.__T.checkins.length") == 0, "…and nothing is marked as given")
+    p.evaluate(f"window.__codes = ['https://x/pass.html#{pn}-1']"); p.wait_for_timeout(900)
+    check(p.evaluate("window.__T.checkins.length") == 1, "single pass in view is marked given (person 1 only)")
+    p.wait_for_timeout(4500)
+    check(p.evaluate("window.__T.checkins.length") == 1 and "Already given" in p.inner_text("#ctScan"), "holding the same QR again: already given, no other person marked")
+    check(errs == [], f"no page errors {errs}")
+
     print("Desktop + public pass page")
     p, errs = page_for(b, "super", w=1280, h=860); p.click("#tabs [data-tab=bookings]"); p.wait_for_timeout(300); p.screenshot(path=str(SHOTS / "7_desktop_bookings.png"))
     check(errs == [], f"no page errors {errs}")
@@ -221,6 +246,10 @@ with sync_playwright() as pw:
     pn = p.evaluate("window.__seed.b.pass_no")
     p.goto(WEB.replace("index.html", "pass.html") + "#" + pn + "-2"); p.wait_for_timeout(700)
     check(p.locator(".tk").count() == 1 and "Adult 2" in p.inner_text(".tk"), "public pass link shows that person's QR and details")
+    check(p.locator(".pnav a").count() == 3, "public pass page links the other people instead of showing their QRs")
+    p.goto(WEB.replace("index.html", "pass.html") + "#" + pn); p.wait_for_timeout(700)
+    check(p.locator(".tk").count() == 1, "booking link without person shows only the first QR")
+    p.goto(WEB.replace("index.html", "pass.html") + "#" + pn + "-2"); p.wait_for_timeout(700)
     p.screenshot(path=str(SHOTS / "8_public_pass.png"))
     p.goto(WEB.replace("index.html", "pass.html") + "#NOPE-A101-XXXXX"); p.wait_for_timeout(500)
     check("not found" in p.inner_text("body"), "unknown pass shows not found")
