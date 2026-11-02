@@ -139,6 +139,16 @@ with sync_playwright() as pw:
             p.click(f"#tabs [data-tab={t}]"); p.wait_for_timeout(150)
             if not p.evaluate(no_hscroll): bad.append(t)
         check(not bad, f"{name} {w}px: no sideways scrolling on committee screens {bad}")
+        # long forms: top must be on screen and the last button reachable by scrolling the sheet
+        reach = """(btn)=>{const s=document.querySelector('#ovl .sheet');const top=s.getBoundingClientRect().top;
+          s.scrollTop=s.scrollHeight;const b=document.querySelector(btn).getBoundingClientRect();
+          const h=s.querySelector('header .x').getBoundingClientRect();
+          return top>=0 && b.bottom<=innerHeight+1 && h.top>=0}"""
+        for t, opener, last in [("events", "#newEvent", "#eSave"), ("bookings", "#bkNew", "#fGo")]:
+            p.click(f"#tabs [data-tab={t}]"); p.wait_for_timeout(150); p.click(opener); p.wait_for_timeout(300)
+            check(p.evaluate(reach, last), f"{name} {w}px: {opener} form fully reachable by scrolling, close button stays visible")
+            p.click("#ovl .x"); p.wait_for_timeout(150)
+        check(p.evaluate("document.body.style.overflow") == "", f"{name} {w}px: page scrolls again after closing a form")
         p.click("#mRes"); p.wait_for_timeout(200)
         check(p.evaluate(no_hscroll), f"{name} {w}px: no sideways scrolling on resident home")
         check(errs == [], f"no page errors {errs}")
