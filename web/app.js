@@ -1121,10 +1121,11 @@ function askReason(title, what, okLabel) {
     setTimeout(() => $("#rsnTxt", o).focus(), 50);
   });
 }
-const AUDIT_LABEL = { undo_paid: "Payment undone", not_given: "Marked not given", restore: "Booking restored", cancel: "Cancelled by committee", no_refund: "No refund", revoke_committee: "Committee access removed" };
+const AUDIT_LABEL = { manual_given: "Given without QR", undo_paid: "Payment undone", not_given: "Marked not given", restore: "Booking restored", cancel: "Cancelled by committee", no_refund: "No refund", revoke_committee: "Committee access removed" };
 function auditDetails(a) {
   const d = a.details || {};
   if (a.action === "undo_paid") return `Was: ${MODE[d.mode] || d.mode || ""} ${d.amount != null ? inr(d.amount) : ""}${d.cash_received_by ? " · received by " + d.cash_received_by : ""}${d.marked_by ? " · marked by " + d.marked_by : ""}${d.paid_at ? " · " + fdt(d.paid_at) : ""}`;
+  if (a.action === "manual_given") return `${d.session || ""}: person ${(d.persons || []).join(", ")}`;
   if (a.action === "not_given") return `${d.session || ""}: ${(d.removed || []).map(r => "person " + r.person + " (given " + hm(r.given_at) + (r.given_by ? " by " + r.given_by : "") + ")").join(", ")}`;
   if (a.action === "restore") return `Was cancelled${d.cancelled_by ? " by " + d.cancelled_by : ""}${d.cancelled_at ? " on " + fdt(d.cancelled_at) : ""}`;
   if (a.action === "cancel") return `Status before: ${d.status_before || ""}${d.paid_amount ? " · paid " + inr(d.paid_amount) : ""}`;
@@ -1152,13 +1153,15 @@ function givenPanel(b) {
   </div>`;
 }
 async function setGiven(bid, sid, ns, on, label) {
-  let reason = null;
-  if (!on) { const b = S.bookings.find(x => x.id === bid) || {}, ev = evById(b.event_id) || {}, s = (ev.sessions || []).find(x => x.id === sid) || {};
-    reason = await askReason("Mark not given", `<b>${esc(label || "Person " + ns.join(", "))}</b> · ${esc(b.flat || "")} · ${esc(s.label || s.meal || "")} ${fd(s.date)}<br>The hand-over is removed and the meal can be given again.`, "Mark not given");
-    if (!reason) return false; }
+  const b = S.bookings.find(x => x.id === bid) || {}, ev = evById(b.event_id) || {}, s = (ev.sessions || []).find(x => x.id === sid) || {};
+  const who = `<b>${esc(label || "Person " + ns.join(", "))}</b> · ${esc(b.flat || "")} · ${esc(s.label || s.meal || "")} ${fd(s.date)}`;
+  const reason = on
+    ? await askReason("Give without scanning the QR", `${who}<br>Meals are normally given only by scanning <b>each person's own QR</b>. Write why it is given without the QR (e.g. phone not available, checked name and flat).`, "Give without QR")
+    : await askReason("Mark not given", `${who}<br>The hand-over is removed and the meal can be given again.`, "Mark not given");
+  if (!reason) return false;
   const { error } = await sb.rpc("set_given", { p_booking: bid, p_session: sid, p_persons: ns, p_given: on, p_reason: reason });
   if (error) { toast(errMsg(error)); return false; }
-  toast(on ? "Marked given" : "Marked not given · logged"); return true;
+  toast(on ? "Given without QR · logged" : "Marked not given · logged"); return true;
 }
 function wireGiven(box, after) {
   $$("[data-give]", box).forEach(btn => btn.onclick = async () => { const [b, s, n] = btn.dataset.give.split("|"); if (await setGiven(b, s, [+n], true)) after && after(); });
@@ -1229,7 +1232,15 @@ function payForm(b, many) {
 }
 
 /* ───────────── committee: counter (live camera + photo + search) ───────────── */
-function sessRows(b, sessions, givenMap, okToServe, focusN) {
+function sessRows(b, sessions, givenMap, okToServe, focusN, scanTok) {
+  if (scanTok) return sessions.map(s => {
+    const ps = persons(b), g = givenMap[s.id] || {}, isToday = s.date === today();
+    const chips = ps.map(p => { const d = g[p.n], me = focusN === p.n;
+      return `<span class="pchip ro${d ? " done" : ""}${me ? " focus" : ""}">${p.type} ${p.n}${d ? " ✓ " + hm(d.at) : me ? "" : " · own QR"}</span>`; }).join("");
+    const mine = focusN && !g[focusN] && isToday && okToServe ? `<button class="btn primary sm" type="button" data-qrgive="${esc(scanTok)}|${s.id}">Give ${esc(persons(b)[focusN - 1].type)} ${focusN} · ${esc(s.label || s.meal)}</button>` : "";
+    return `<div class="srow"><div class="spread"><span>${esc(s.label || s.meal)} · ${fd(s.date)}${isToday ? ' <span class="chip gold">Today</span>' : ""}</span><span class="small muted">${Object.keys(g).length}/${ps.length} given</span></div>
+      <div class="pchips">${chips}</div>${mine ? `<div style="margin-top:6px">${mine}</div>` : ""}</div>`;
+  }).join("") + `<div class="small muted" style="margin-top:6px">Each person is given only by scanning <b>their own QR</b>. Others in this booking scan their own pass.</div>`;
   return sessions.map(s => {
     const ps = persons(b), left = ps.filter(p => !(givenMap[s.id] || {})[p.n]);
     const chips = ps.map(p => { const d = (givenMap[s.id] || {})[p.n], f = focusN === p.n ? " focus" : "";
@@ -1237,13 +1248,16 @@ function sessRows(b, sessions, givenMap, okToServe, focusN) {
                : `<button class="pchip${f}" type="button" data-serve="${b.id}|${s.id}|${p.n}"${okToServe ? "" : " disabled"}>${p.type} ${p.n}</button>`; }).join("");
     return `<div class="srow"><div class="spread"><span>${esc(s.label || s.meal)} · ${fd(s.date)}${s.date === today() ? ' <span class="chip gold">Today</span>' : ""}</span>
       <span class="small muted">${ps.length - left.length}/${ps.length} given${left.length > 1 && okToServe ? ` · <button class="linkbtn" type="button" title="Tap twice to mark all given" data-serveall="${b.id}|${s.id}|${left.map(p => p.n).join(",")}">give all ${left.length}</button>` : ""}</span></div>
-      <div class="pchips">${chips}</div><div class="small muted" style="margin-top:4px">Tap a name <b>twice</b> to mark given${ps.length - left.length ? ` · tap a ✓ to mark <b>not given</b> (reason needed)` : ""}.</div></div>`;
+      <div class="pchips">${chips}</div><div class="small muted" style="margin-top:4px">No QR? Tap a name to give <b>without QR</b> (reason needed, logged)${ps.length - left.length ? ` · tap a ✓ to mark <b>not given</b>` : ""}.</div></div>`;
   }).join("");
 }
 function wireServe(box, after) {
-  const call = async (bid, sid, ns, on) => { if (await setGiven(bid, sid, ns, on, "Person " + ns.join(", "))) after && after(); };
-  $$("[data-serve]", box).forEach(btn => arm(btn, () => { const [b, s, n] = btn.dataset.serve.split("|"); call(b, s, [+n], true); }, "Give " + btn.textContent.trim() + "? Tap again"));
-  $$("[data-serveall]", box).forEach(btn => arm(btn, () => { const [b, s, ns] = btn.dataset.serveall.split("|"); call(b, s, ns.split(",").map(Number), true); }, "confirm"));
+  const call = async (bid, sid, ns, on, label) => { if (await setGiven(bid, sid, ns, on, label || "Person " + ns.join(", "))) after && after(); };
+  $$("[data-qrgive]", box).forEach(btn => btn.onclick = async () => { const [t, sid] = btn.dataset.qrgive.split("|"); btn.disabled = true;
+    const { data, error } = await sb.rpc("give_by_qr", { p_token: t, p_session: sid }); if (error) { toast(errMsg(error)); btn.disabled = false; return; }
+    if (data.result === "given") justGiven = t.replace(/^.*#/, "").toUpperCase(); toast(data.result === "given" ? "Given ✓" : "Already given"); after && after(); });
+  $$("[data-serve]", box).forEach(btn => btn.onclick = () => { const [b, s, n] = btn.dataset.serve.split("|"); call(b, s, [+n], true, btn.textContent.trim()); });
+  $$("[data-serveall]", box).forEach(btn => btn.onclick = () => { const [b, s, ns] = btn.dataset.serveall.split("|"); call(b, s, ns.split(",").map(Number), true, "All " + ns.split(",").length + " remaining"); });
   $$("[data-unserve]", box).forEach(btn => btn.onclick = () => { const [b, s, n] = btn.dataset.unserve.split("|"); call(b, s, [+n], false); });
 }
 function renderCounter() {
@@ -1261,6 +1275,7 @@ function renderCounter() {
   wireServe(box, () => reloadSoon());
 }
 let scanBusy = false, lastTok = "", lastAt = 0;
+let justGiven = "";
 async function handleScan(raw, auto) {
   const t = String(raw || "").trim().replace(/^.*#/, "").toUpperCase();
   if (t.startsWith("G:")) return handleGroupScan(t, auto);
@@ -1269,6 +1284,8 @@ async function handleScan(raw, auto) {
   const { data: j, error } = await sb.rpc("scan_pass", { p_token: t, p_auto: !!auto });
   scanBusy = false;
   if (error) { box.innerHTML = `<div class="result stop"><div class="big">Could not check</div><div class="small">${esc(errMsg(error))}</div></div>`; return; }
+  if (j.result === "already_given" && justGiven && justGiven === t) j.result = "given";
+  justGiven = "";
   if (j.result === "given") reloadSoon();
   if (navigator.vibrate) navigator.vibrate(j.result === "given" || j.result === "valid" || j.result === "booking" ? 60 : [80, 60, 80]);
   if (j.result === "not_found") { box.innerHTML = `<div class="result stop"><div class="big">✕ Pass not found</div><div class="small">Read: <span class="mono">${esc(j.token)}</span>. Ask for the pass number and search below.</div></div>`; return; }
@@ -1279,12 +1296,12 @@ async function handleScan(raw, auto) {
     <dt>Flat</dt><dd><b>${esc(b.flat)}</b></dd><dt>Name</dt><dd>${esc(b.name)}</dd>
     <dt>Event</dt><dd><span class="gu">${esc(j.event.name_gu || "")}</span>${j.event.name_gu && j.event.name_en ? " · " : ""}${esc(j.event.name_en || "")}</dd>
     <dt>Date</dt><dd>${esc([...new Set((j.sessions || []).map(s => fd(s.date)))].join(", "))}</dd><dt>Pass</dt><dd class="mono">${esc(tok(b, n))}</dd></dl>`;
-  const rows = `<div style="margin-top:8px">${sessRows(b, j.sessions || [], gm, b.status === "paid", n || null)}</div>`;
+  const rows = `<div style="margin-top:8px">${sessRows(b, j.sessions || [], gm, b.status === "paid", n || null, n ? tok(b, n) : "__booking")}</div>`;
   const last = (j.sessions || []).filter(s => s.date === today()).map(s => (gm[s.id] || {})[n]).filter(Boolean).pop();
   const cards = {
     given: ["go", `✓ Give item · ${p && p.type} ${n}`, `<div class="small">Marked as given just now.</div>${rows}`],
-    valid: ["go", `✓ Valid · ${p && p.type} ${n}`, `<div class="small">Tap ${p && p.type} ${n} under today's session to mark it given.</div>${rows}`],
-    booking: ["go", "✓ Valid booking", `<div class="small">This is the booking number. Tap each person as items are given.</div>${rows}`],
+    valid: ["go", `✓ Valid · ${p && p.type} ${n}`, `<div class="small">Tap <b>Give ${p && p.type} ${n}</b> for the session being served now.</div>${rows}`],
+    booking: ["ask", "Booking number only", `<div class="small">This QR has no person in it. Ask each person to show <b>their own</b> pass QR.</div>${rows}`],
     already_given: ["stop", `✕ Already given${last ? " at " + hm(last.at) : ""}`, `<div class="small">Do not give again.</div>${rows}`],
     no_session_today: ["ask", "No session today for this pass", rows],
     unpaid: ["ask", "Payment pending · " + inr(b.amount), `${b.upi_ref ? `<div class="small">UTR submitted: <span class="mono">${esc(b.upi_ref)}</span></div>` : ""}<div class="row" style="margin-top:6px"><button class="btn primary" type="button" data-scanpay>Collect &amp; mark paid</button></div>`],

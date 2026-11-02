@@ -210,7 +210,16 @@ r = await as(akash, "select count(*)::int n from checkins where booking_id=$1 an
 r = await as(akash, "select details from audit_log where action='not_given' and booking_id=$1", [bA.id]);
 assert.equal(r.rows[0].details.removed[0].person, 2); assert.ok(r.rows[0].details.removed[0].given_at); ok("mark not given: removed and logged with the original hand-over time");
 await fails(akash, "select set_given($1,$2,'{2}',false,'Again by mistake')", [bA.id, s1], /Nothing to undo/); ok("cannot 'un-give' something not given");
-await as(akash, "select set_given($1,$2,'{2}',true,null)", [bA.id, s1]); ok("marking given needs no reason");
+await fails(akash, "select set_given($1,$2,'{2}',true,null)", [bA.id, s1], /reason/); ok("marking given without the QR needs a reason");
+await as(akash, "select set_given($1,$2,'{2}',true,'Resident phone battery dead, checked ID')", [bA.id, s1]);
+r = await as(akash, "select action from audit_log where booking_id=$1 order by id desc limit 1", [bA.id]); assert.equal(r.rows[0].action, "manual_given"); ok("…and is logged as 'given without QR'");
+await as(akash, "select set_given($1,$2,'{3}',false,'Testing scan by QR')", [bA.id, s1]);
+r = await as(akash, "select give_by_qr($1,$2) j", [bA.pass_no + "-3", s1]); assert.equal(r.rows[0].j.result, "given"); assert.equal(r.rows[0].j.person, 3);
+r = await as(akash, "select count(*)::int n from checkins where booking_id=$1 and session_id=$2", [bA.id, s1]); assert.equal(r.rows[0].n, 3); ok("give by QR marks only the scanned person");
+r = await as(akash, "select give_by_qr($1,$2) j", [bA.pass_no + "-3", s1]); assert.equal(r.rows[0].j.result, "already_given"); ok("same QR again → already given");
+await fails(akash, "select give_by_qr($1,$2)", [bA.pass_no, s1], /person/); ok("booking QR without person cannot give");
+await fails(akash, "select give_by_qr($1,$2)", [bA.pass_no + "-1", s2], /not valid for that session today/); ok("cannot give a session that is not today");
+await fails(asha, "select give_by_qr($1,$2)", [bA.pass_no + "-1", s1], /Committee only/); ok("residents cannot give");
 const qR = await nc(); await as(akash, "select cancel_booking($1,'Duplicate booking')", [qR.id]);
 await as(akash, "select restore_booking($1,'Not a duplicate after all')", [qR.id]);
 r = await as(akash, "select action, reason from audit_log where booking_id=$1 order by id", [qR.id]);

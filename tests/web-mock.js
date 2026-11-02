@@ -124,7 +124,10 @@
     request_committee_access(a) { T.staff_requests.push({ user_id: me.id, note: a.p_note, status: "pending", requested_at: new Date().toISOString() }); },
     decide_committee(a) { const r = T.staff_requests.find(x => x.user_id === a.p_user); r.status = a.p_approve ? "approved" : "rejected"; if (a.p_approve) T.staff.push({ user_id: a.p_user, role: "committee", active: true, approved_at: new Date().toISOString() }); },
     revoke_committee(a) { rpcs.__audit("revoke_committee", a); T.staff.find(s => s.user_id === a.p_user).active = false; },
-    set_given(a) { if (!a.p_given) rpcs.__audit("not_given", a, { session: "Day 1", removed: a.p_persons.map(n => ({ person: n, given_at: new Date().toISOString() })) }); a.p_persons.forEach(n => { const i = T.checkins.findIndex(c => c.booking_id === a.p_booking && c.session_id === a.p_session && c.person_no === n); if (a.p_given && i < 0) T.checkins.push({ booking_id: a.p_booking, session_id: a.p_session, person_no: n, given_at: new Date().toISOString() }); if (!a.p_given && i >= 0) T.checkins.splice(i, 1); }); },
+    give_by_qr(a) { const m = a.p_token.replace(/^.*#/, "").match(/^(.*)-(\d{1,2})$/); const b = T.bookings.find(x => x.pass_no === m[1]), n = +m[2];
+      if (T.checkins.some(c => c.booking_id === b.id && c.session_id === a.p_session && c.person_no === n)) return { result: "already_given", person: n };
+      T.checkins.push({ booking_id: b.id, session_id: a.p_session, person_no: n, given_at: new Date().toISOString() }); return { result: "given", person: n }; },
+    set_given(a) { if (a.p_given) rpcs.__audit("manual_given", a, { persons: a.p_persons }); if (!a.p_given) rpcs.__audit("not_given", a, { session: "Day 1", removed: a.p_persons.map(n => ({ person: n, given_at: new Date().toISOString() })) }); a.p_persons.forEach(n => { const i = T.checkins.findIndex(c => c.booking_id === a.p_booking && c.session_id === a.p_session && c.person_no === n); if (a.p_given && i < 0) T.checkins.push({ booking_id: a.p_booking, session_id: a.p_session, person_no: n, given_at: new Date().toISOString() }); if (!a.p_given && i >= 0) T.checkins.splice(i, 1); }); },
     public_pass(a) {
       const t = a.p_token; let b = T.bookings.find(x => x.pass_no === t), n = 0;
       if (!b) { const m = t.match(/^(.*)-(\d{1,2})$/); if (m) { b = T.bookings.find(x => x.pass_no === m[1]); n = +m[2]; } }
