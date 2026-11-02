@@ -86,8 +86,8 @@
       <form id="otpForm" class="lstep" hidden>
         <p class="small">Code sent to <b id="lgTo"></b> · <button type="button" class="linkbtn" id="lgChange">Change</button></p>
         <p class="small muted" id="lgSpam" hidden>Not in the inbox? Check <b>Spam / Promotions</b>. The email comes from the society Gmail.</p>
-        <div class="field"><label for="lgOtp">6-digit code <span class="gu">કોડ</span></label>
-          <input id="lgOtp" class="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required></div>
+        <div class="field"><label for="lgOtp"><span id="lgOtpLbl">6-digit code</span> <span class="gu">કોડ</span></label>
+          <input id="lgOtp" class="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" required></div>
         <div class="err" id="lgErr2"></div>
         <button class="btn primary big" id="lgVerify" type="submit">Verify &amp; log in</button>
         <button class="btn" type="button" id="lgResend" disabled>Resend code</button>

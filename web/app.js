@@ -208,16 +208,17 @@ function subscribeLive() {
 }
 
 /* ───────────── login (mobile + OTP) ───────────── */
-let otpPhone = "", otpEmail = "", loginBy = "phone", resendT = 0;
+let otpPhone = "", otpEmail = "", loginBy = "phone", resendT = 0, otpLen = 6;
+function setOtpLen(n) { otpLen = n; const i = $("#lgOtp"); i.maxLength = n; i.placeholder = "•".repeat(n); i.value = ""; $("#lgOtpLbl").textContent = n + "-digit code"; }
 function setLoginBy(v) {
   loginBy = v; $("#phoneForm").hidden = v !== "phone"; $("#emailForm").hidden = v !== "email"; $("#otpForm").hidden = true;
-  $("#lgHint").textContent = v === "email" ? "Log in with your email. We'll email you a 6-digit code — use this if the SMS code does not arrive." : "Log in with your mobile number. We'll send a 6-digit code by SMS.";
+  $("#lgHint").textContent = v === "email" ? "Log in with your email. We'll email you a login code — use this if the SMS code does not arrive." : "Log in with your mobile number. We'll send a 6-digit code by SMS.";
   (v === "email" ? $("#lgEmail") : $("#lgPhone")).focus();
 }
 $$("input[name=lgBy]").forEach(r => r.onchange = () => setLoginBy(r.value));
 async function sendEmailCode(email) {
   const { data, error } = await sb.functions.invoke("email-otp", { body: { email } });
-  if (!error && data && data.sent) return null;
+  if (!error && data && data.sent) { setOtpLen(+data.length || 8); return null; }
   let m = "Could not send the email. Please try again."; try { const j = await error.context.json(); m = j.error || m; } catch (e) {}
   return m;
 }
@@ -230,7 +231,7 @@ $("#emailForm").addEventListener("submit", async e => {
   btn.disabled = false; btn.textContent = "Email me a code";
   if (fail) { err.textContent = fail; return; }
   otpEmail = m; $("#lgTo").textContent = m; $("#lgSpam").hidden = false;
-  $("#emailForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").value = ""; $("#lgOtp").focus();
+  $("#emailForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").focus();
   startResendTimer();
 });
 function showLogin() {
@@ -247,7 +248,7 @@ $("#phoneForm").addEventListener("submit", async e => {
   if (error) { err.textContent = /rate|security purposes/i.test(error.message) ? "Please wait a minute before asking for another code."
     : /sms|provider|twilio|hook/i.test(error.message) ? "SMS code could not be sent right now. Please use the ✉️ Email option above to log in." : errMsg(error); return; }
   otpPhone = n; $("#lgTo").textContent = "+91 " + n.slice(0, 5) + " " + n.slice(5); $("#lgSpam").hidden = true;
-  $("#phoneForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").value = ""; $("#lgOtp").focus();
+  setOtpLen(6); $("#phoneForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").focus();
   startResendTimer();
 });
 function startResendTimer() {
@@ -258,11 +259,11 @@ $("#lgResend").onclick = async () => {
   if (loginBy === "email") { const fail = await sendEmailCode(otpEmail); if (fail) $("#lgErr2").textContent = fail; else { toast("New code emailed"); startResendTimer(); } return; }
   const { error } = await sb.auth.signInWithOtp({ phone: "+91" + otpPhone }); if (error) $("#lgErr2").textContent = errMsg(error); else { toast("New code sent"); startResendTimer(); } };
 $("#lgChange").onclick = () => setLoginBy(loginBy);
-$("#lgOtp").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6); if (e.target.value.length === 6) $("#otpForm").requestSubmit(); });
+$("#lgOtp").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, otpLen); if (e.target.value.length === otpLen) $("#otpForm").requestSubmit(); });
 $("#otpForm").addEventListener("submit", async e => {
   e.preventDefault();
   const code = $("#lgOtp").value, err = $("#lgErr2"); err.textContent = "";
-  if (!/^\d{6}$/.test(code)) { err.textContent = "Enter the 6-digit code."; return; }
+  if (!/^\d{6,10}$/.test(code)) { err.textContent = `Enter the ${otpLen}-digit code.`; return; }
   const btn = $("#lgVerify"); btn.disabled = true; btn.textContent = "Checking…";
   let { error } = loginBy === "email" ? await sb.auth.verifyOtp({ email: otpEmail, token: code, type: "email" }) : await sb.auth.verifyOtp({ phone: "+91" + otpPhone, token: code, type: "sms" });
   if (error && loginBy === "email") ({ error } = await sb.auth.verifyOtp({ email: otpEmail, token: code, type: "magiclink" }));

@@ -1,7 +1,7 @@
 // Email login code for residents (used while SMS OTP is not available).
-// POST { email }  →  creates the account if needed and emails a 6-digit login code
+// POST { email }  →  creates the account if needed and emails a login code (6 or 8 digits, per project setting)
 //                    through the same Gmail / SMTP account used for pass emails.
-// The app then calls supabase.auth.verifyOtp({ email, token, type: "email" }).
+// Returns { sent, length } (the project may use 6- or 8-digit codes). The app then calls supabase.auth.verifyOtp({ email, token, type: "email" }).
 //
 // Secrets: SMTP_USER, SMTP_PASS (optional SMTP_HOST, SMTP_PORT, PASS_FROM_EMAIL) — same as send-pass.
 // Deployed with verify_jwt = false (people are not logged in yet). Abuse limits below.
@@ -67,5 +67,5 @@ Deno.serve(async (req) => {
     console.error("SMTP", String((e as Error)?.message ?? e));
     return reply(502, { error: "The login email could not be sent. Please try again or contact the committee." });
   }
-  return reply(200, { sent: true });
+  return reply(200, { sent: true, length: String(code).length });
 });

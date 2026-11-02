@@ -33,7 +33,7 @@ sms_sent = 60
 [auth.email]
 # accounts for email login are created by the email-otp function (admin API), not by open sign-up
 enable_signup = false
-otp_length = 6
+otp_length = 8
 otp_expiry = 3600
 
 [functions.sms-hook]
