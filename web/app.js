@@ -122,10 +122,10 @@ async function loadData() {
   const set = await sb.from("app_settings").select("key,value");
   S.settings = Object.fromEntries((set.data || []).map(r => [r.key, r.value]));
   S.bookings = (await fetchAll(() => sb.from("bookings").select("*, booking_sessions(session_id)").order("created_at", { ascending: false }))).map(normBooking);
+  const ck = await fetchAll(() => sb.from("checkins").select("*"));
+  const m = {}; ck.forEach(c => { ((m[c.booking_id] = m[c.booking_id] || {})[c.session_id] = m[c.booking_id][c.session_id] || {})[c.person_no] = { at: c.given_at }; });
+  S.checkins = m;
   if (isStaff()) {
-    const ck = await fetchAll(() => sb.from("checkins").select("*"));
-    const m = {}; ck.forEach(c => { ((m[c.booking_id] = m[c.booking_id] || {})[c.session_id] = m[c.booking_id][c.session_id] || {})[c.person_no] = { at: c.given_at }; });
-    S.checkins = m;
     const [pr, st] = await Promise.all([fetchAll(() => sb.from("profiles").select("*")), sb.from("staff").select("*")]);
     S.profiles = Object.fromEntries(pr.map(p => [p.id, p])); S.staffList = st.data || [];
     if (isSuper()) S.requests = (await sb.from("staff_requests").select("*").order("requested_at")).data || [];
@@ -143,7 +143,7 @@ function subscribeLive() {
   channel = sb.channel("ss-live")
     .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, reloadSoon)
     .on("postgres_changes", { event: "*", schema: "public", table: "events" }, reloadSoon)
-    .on("postgres_changes", { event: "*", schema: "public", table: "checkins" }, () => { if (isStaff()) reloadSoon(); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "checkins" }, reloadSoon)
     .subscribe();
 }
 
@@ -462,6 +462,50 @@ function myBookingCard(b, i, n, dfltOpen) {
     ${!cancelled ? `<div class="row mybk-act"><a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>${b.status === "pending" ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}">Cancel booking</button>` : ""}<span class="small muted" style="margin-left:auto">Booked ${fd(b.created_at)}</span></div>` : ""}</div>`;
   return collapsible("bk:" + b.id, isOpen("bk:" + b.id, dfltOpen), head, body, "mybk" + (cancelled ? " is-cancelled" : "") + (due ? " is-due" : ""));
 }
+/* resident: pick passes → one QR for the counter */
+function personState(b, n) {
+  if (b.status === "cancelled") return { ok: false, why: "Cancelled" };
+  if (b.status !== "paid") return { ok: false, why: "Payment due" };
+  const ev = evById(b.event_id) || {}, t = today();
+  const todays = (ev.sessions || []).filter(s => b.sessions.includes(s.id) && s.date === t);
+  if (todays.length && todays.every(s => given(b, s.id, n))) { const g = todays.map(s => given(b, s.id, n)).pop(); return { ok: false, why: "Collected " + hm(g.at), done: true }; }
+  const future = (ev.sessions || []).filter(s => b.sessions.includes(s.id) && s.date >= t);
+  if (!future.length) return { ok: false, why: "Event over" };
+  return { ok: true };
+}
+const groupToken = picks => { const by = {}; picks.forEach(([pno, n]) => (by[pno] = by[pno] || []).push(n)); return "G:" + Object.entries(by).map(([p, ns]) => p + ":" + ns.sort((a, z) => a - z).join(".")).join(","); };
+function groupSheet(e) {
+  const list = S.bookings.filter(b => b.user_id === S.user.id && b.event_id === e.id && active(b)).sort((x, y) => x.created_at.localeCompare(y.created_at));
+  const rows = []; list.forEach((b, i) => persons(b).forEach(p => rows.push({ b, p, i: i + 1, st: personState(b, p.n) })));
+  const okRows = rows.filter(r => r.st.ok);
+  const todaySess = (e.sessions || []).filter(s => s.date === today());
+  const o = openSheet(`<header><div><div class="muted small">${esc(e.name_en || "")}</div><h2 class="gu">એકસાથે લો · Collect together</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+    <p class="small muted" style="margin:0">Tick the passes you want to collect now. You get <b>one QR</b> for all of them — the committee scans it once and hands over all the dishes.</p>
+    ${todaySess.length ? "" : `<div class="notice small">This event's next session is not today. The QR works on the event day.</div>`}
+    <div class="row" style="justify-content:space-between"><b class="small">${okRows.length} of ${rows.length} pass${rows.length === 1 ? "" : "es"} can be collected</b>
+      <span class="row"><button class="btn sm" type="button" id="gAll">Select all</button><button class="btn sm" type="button" id="gNone">Clear</button></span></div>
+    <div class="gpick">${rows.map((r, k) => `<label class="gp${r.st.ok ? "" : " off"}"><input type="checkbox" data-k="${k}"${r.st.ok ? " checked" : " disabled"}>
+      <span><b>${r.p.type} ${r.p.n}</b> <span class="muted small">· booking ${r.i}</span><small class="mono">${esc(tok(r.b, r.p.n))}</small></span>
+      ${r.st.ok ? `<span class="chip ok">Ready</span>` : `<span class="chip ${r.st.done ? "info" : "warn"}">${esc(r.st.why)}</span>`}</label>`).join("")}</div>
+    <div class="gqr" id="gQr"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn x2" type="button">Done</button></div>`, true);
+  $(".x2", o).onclick = closeSheet;
+  const draw = () => {
+    const picks = $$(".gpick input:checked", o).map(i => rows[+i.dataset.k]);
+    const box = $("#gQr", o);
+    if (!picks.length) { box.innerHTML = `<div class="empty"><b>No passes selected</b>Tick at least one pass to get the QR.</div>`; return; }
+    const A = picks.filter(r => r.p.type === "Adult").length, C = picks.length - A;
+    const url = SITE + "/#" + groupToken(picks.map(r => [r.b.pass_no, r.p.n]));
+    box.innerHTML = `<div class="gqr-card"><div class="gqr-h"><b>${picks.length} dish${picks.length === 1 ? "" : "es"}</b><span>${A} adult${A === 1 ? "" : "s"}${C ? " · " + C + " child" + (C > 1 ? "ren" : "") : ""} · ${esc(list[0].flat)}</span></div>
+      <div class="qr big">${qrSvg(url)}</div>
+      <div class="small muted" style="text-align:center"><span class="gu">કાઉન્ટર પર આ એક QR બતાવો</span> · Show this one QR at the counter</div>
+      <div class="gqr-list">${picks.map(r => `<span>${r.p.type} ${r.p.n} · ${esc(r.b.pass_no.slice(-5))}</span>`).join("")}</div></div>`;
+  };
+  $$(".gpick input", o).forEach(i => i.onchange = draw);
+  $("#gAll", o).onclick = () => { $$(".gpick input:not(:disabled)", o).forEach(i => i.checked = true); draw(); };
+  $("#gNone", o).onclick = () => { $$(".gpick input", o).forEach(i => i.checked = false); draw(); };
+  draw();
+}
 function renderMine() {
   const box = $("#myList"), bar = $("#myTools");
   const mine = S.bookings.filter(b => b.user_id === S.user.id);
@@ -488,11 +532,13 @@ function renderMine() {
       <span class="evtot"><b>${T.persons}</b><span>pass${T.persons === 1 ? "" : "es"}</span></span>`;
     const body = `<div class="evsum"><span>${T.count} booking${T.count === 1 ? "" : "s"} · ${pplTxt(T.adults, T.children)}</span><span>Total <b class="num">${inr(T.amount)}</b>${T.due > 0 ? ` · <span class="due">due ${inr(T.due)}</span>` : T.amount > 0 ? ` · <span class="okc">all paid</span>` : ""}</span></div>
       <div class="bklist">${shown.map(b => myBookingCard(b, (activeList.indexOf(b) + 1) || "×", activeList.length, filtering || b === latest)).join("")}</div>
+      ${activeList.length && !past ? `<button class="btn primary together" type="button" data-together="${e.id}"><svg class="ic sm"><use href="#i-scan"/></svg><span><span class="gu">એકસાથે લો</span> · Collect together with one QR</span></button>` : ""}
       ${windowState(e).k === "open" ? `<button class="btn more" type="button" data-bookmore="${e.id}"><svg class="ic sm"><use href="#i-plus"/></svg>Book more passes for this event</button>` : ""}`;
     return collapsible("ev:" + e.id, isOpen("ev:" + e.id, filtering || !past || gi === 0), head, body, "evgroup");
   }).join("");
   wireUtr(box);
   $$("[data-bookmore]", box).forEach(btn => btn.onclick = () => bookingForm(evById(btn.dataset.bookmore), false));
+  $$("[data-together]", box).forEach(btn => btn.onclick = () => groupSheet(evById(btn.dataset.together)));
   $$("[data-mycancel]", box).forEach(btn => arm(btn, async () => { const { error } = await sb.rpc("cancel_booking", { p_booking: btn.dataset.mycancel }); if (error) toast(errMsg(error)); else { toast("Booking cancelled"); reloadSoon(); } }, "Confirm cancel"));
 }
 $("#myList").addEventListener("click", e => { const t = e.target.closest("[data-tg]"); if (t) toggleBox(t); });
@@ -855,6 +901,7 @@ function renderCounter() {
 let scanBusy = false, lastTok = "", lastAt = 0;
 async function handleScan(raw, auto) {
   const t = String(raw || "").trim().replace(/^.*#/, "").toUpperCase();
+  if (t.startsWith("G:")) return handleGroupScan(t, auto);
   const now = Date.now(); if (scanBusy || (t === lastTok && now - lastAt < 4000)) return; scanBusy = true; lastTok = t; lastAt = now;
   const box = $("#ctScan"); box.innerHTML = `<div class="result ask"><div class="status-line"><span class="spinner"></span><b>Checking ${esc(t.slice(0, 30))}…</b></div></div>`;
   const { data: j, error } = await sb.rpc("scan_pass", { p_token: t, p_auto: !!auto });
@@ -884,6 +931,37 @@ async function handleScan(raw, auto) {
   wireServe(box, () => { lastTok = ""; handleScan(tok(b, n), false); reloadSoon(); });
   const pb = $("[data-scanpay]", box); if (pb) pb.onclick = () => payForm(Object.assign(S.bookings.find(x => x.id === b.id) || b));
 }
+/* one QR for several passes */
+const RES_UI = {
+  given: ["ok", "✓ Given now"], ready: ["info", "Ready to give"], already_given: ["bad", "Already given"],
+  unpaid: ["warn", "Payment due"], cancelled: ["bad", "Cancelled"], no_session_today: ["warn", "No session today"],
+  other_event: ["bad", "Different event"], not_found: ["bad", "Not found"] };
+async function handleGroupScan(t, auto, force) {
+  const now = Date.now(); if (!force && (scanBusy || (t === lastTok && now - lastAt < 4000))) return; scanBusy = true; lastTok = t; lastAt = now;
+  const box = $("#ctScan"); box.innerHTML = `<div class="result ask"><div class="status-line"><span class="spinner"></span><b>Checking group pass…</b></div></div>`;
+  const { data: j, error } = await sb.rpc("scan_group", { p_token: t, p_auto: !!auto });
+  scanBusy = false;
+  if (error) { box.innerHTML = `<div class="result stop"><div class="big">Could not check</div><div class="small">${esc(errMsg(error))}</div></div>`; return; }
+  const items = j.items || [], bad = items.filter(x => !["given", "ready"].includes(x.result));
+  if (navigator.vibrate) navigator.vibrate(j.give > 0 ? 60 : [80, 60, 80]);
+  const cls = j.give === 0 ? "stop" : bad.length ? "ask" : "go";
+  const big = j.give === 0 ? "✕ Nothing to give" : j.given_now ? `✓ Give ${j.given_now} dish${j.given_now === 1 ? "" : "es"}` : `${j.ready} dish${j.ready === 1 ? "" : "es"} ready to give`;
+  const ev = j.event || {}, A = items.filter(x => ["given", "ready"].includes(x.result) && x.type === "Adult").length, C = items.filter(x => ["given", "ready"].includes(x.result) && x.type === "Child").length;
+  const rows = items.map(x => { const u = RES_UI[x.result] || ["", x.result];
+    return `<div class="grow"><span><b>${esc(x.type || "?")} ${x.person}</b> <span class="mono small">${esc(x.pass_no)}</span>${x.flat ? `<small>${esc(x.flat)} · ${esc(x.name || "")}${x.session ? " · " + esc(x.session) : ""}</small>` : ""}</span>
+      <span class="chip ${u[0]}">${u[1]}${x.given_at && x.result === "already_given" ? " " + hm(x.given_at) : ""}</span></div>`; }).join("");
+  box.innerHTML = `<div class="result ${cls}" role="status"><div class="big">${big}</div>
+    <div class="gcount"><span><b>${j.give}</b> to give</span>${A ? `<span>${A} adult${A === 1 ? "" : "s"}</span>` : ""}${C ? `<span>${C} child${C === 1 ? "" : "ren"}</span>` : ""}${bad.length ? `<span class="warnc">${bad.length} not valid</span>` : ""}</div>
+    <dl class="kv vfy"><dt>Group pass</dt><dd>${j.total} pass${j.total === 1 ? "" : "es"} in one QR</dd>
+      <dt>Flat</dt><dd><b>${esc((j.flats || []).join(", ") || "—")}</b></dd><dt>Name</dt><dd>${esc((j.names || []).join(", ") || "—")}</dd>
+      <dt>Event</dt><dd><span class="gu">${esc(ev.name_gu || "")}</span>${ev.name_gu && ev.name_en ? " · " : ""}${esc(ev.name_en || "")}</dd></dl>
+    <div class="glist">${rows}</div>
+    ${!auto && j.ready ? `<button class="btn primary big" type="button" id="gGive">Give all ${j.ready} and mark as given</button>` : ""}
+    ${(j.flats || []).length > 1 ? `<div class="small" style="color:var(--warn)">This QR has passes from more than one flat. Check with the resident.</div>` : ""}</div>`;
+  if ($("#gGive")) $("#gGive").onclick = () => handleGroupScan(t, true, true);
+  reloadSoon();
+}
+
 /* live camera */
 let camStream = null, camTimer = 0, detector = null;
 try { detector = ("BarcodeDetector" in window) ? new BarcodeDetector({ formats: ["qr_code"] }) : null; } catch (e) { detector = null; }
@@ -1118,6 +1196,15 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
 showInstallBar();
 
 /* ───────────── boot ───────────── */
+/* a pass QR (single or group) opened via its link → committee lands on the counter with the result */
+function routeHash() {
+  const h = decodeURIComponent((location.hash || "").slice(1)).toUpperCase();
+  if (!h || !S.ready || !isStaff()) return false;
+  if (!(/^[A-Z0-9]{2,8}-[A-I]\d{3,4}-[A-Z0-9]{5}(-\d{1,2})?$/.test(h) || /^G:[A-Z0-9:.,\-]+$/.test(h))) return false;
+  userPicked = true; mode = "admin"; tab = "counter"; closeSheet(); render(); handleScan(h, $("#ctAuto").checked);
+  return true;
+}
+window.addEventListener("hashchange", routeHash);
 async function onSession(session) {
   S.user = session ? session.user : null; S.ready = false;
   if (!S.user) { render(); return; }
@@ -1126,8 +1213,7 @@ async function onSession(session) {
   try { await loadProfile(); await loadData(); $("#sysNote").innerHTML = ""; subscribeLive(); }
   catch (e) { console.error(e); $("#sysNote").innerHTML = `<div class="notice warn">Could not load data: ${esc(errMsg(e))}. Check your connection and reload.</div>`; }
   render();
-  const h = decodeURIComponent((location.hash || "").slice(1)).toUpperCase();      // pass QR scanned with a phone camera → open on the counter
-  if (h && isStaff() && /^[A-Z0-9]{2,8}-[A-I]\d{3,4}-[A-Z0-9]{5}(-\d{1,2})?$/.test(h)) { userPicked = true; mode = "admin"; tab = "counter"; render(); handleScan(h, $("#ctAuto").checked); }
+  if (routeHash()) {}
   else if (!profileComplete() && mode === "resident") { S.editProfile = true; renderAccount(); }
 }
 if (!sb) {

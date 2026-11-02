@@ -139,3 +139,23 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
   .tk-b .qr{width:168px;height:168px}
   .tk-b .kv{width:100%;grid-template-columns:auto 1fr auto 1fr;gap:4px 8px;font-size:.86rem}
 }
+
+/* ── collect together (one QR for several passes) ── */
+.btn.together{width:100%;min-height:48px}
+.gpick{display:grid;gap:8px}
+.gp{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;background:var(--surface);border:1.5px solid var(--line2);border-radius:12px;padding:10px 12px;cursor:pointer}
+.gp:has(input:checked){border-color:var(--leaf);background:var(--leaf-tint)}
+.gp.off{opacity:.65;cursor:default}
+.gp small{display:block;color:var(--muted);font-size:.74rem}
+.gqr-card{background:var(--surface);border:2px solid var(--leaf);border-radius:20px;padding:14px;display:grid;gap:10px;justify-items:center}
+.gqr-h{text-align:center;line-height:1.2}.gqr-h b{display:block;font-family:var(--display);font-size:1.6rem;color:var(--leaf)}.gqr-h span{font-size:.86rem;color:var(--muted)}
+.qr.big{width:min(72vw,260px);height:min(72vw,260px);background:#fff;padding:10px;border-radius:12px;border:1px solid #E1E7DC}.qr.big svg{width:100%;height:100%;display:block}
+.gqr-list{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.gqr-list span{font-size:.74rem;background:var(--sunk);border-radius:8px;padding:2px 8px;color:var(--muted)}
+/* counter: group result */
+.gcount{display:flex;flex-wrap:wrap;gap:6px}
+.gcount span{background:var(--surface);border-radius:999px;padding:3px 12px;font-size:.88rem;font-weight:600}
+.gcount b{font-size:1.1rem}.gcount .warnc{color:var(--warn)}
+.glist{display:grid;gap:6px;margin-top:4px}
+.grow{display:flex;justify-content:space-between;gap:10px;align-items:center;background:var(--surface);border-radius:12px;padding:8px 12px}
+.grow small{display:block;color:var(--muted);font-size:.76rem}

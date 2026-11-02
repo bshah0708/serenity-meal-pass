@@ -107,7 +107,29 @@ r = await as(akash, "select scan_pass($1) j", [bA.pass_no + "-3"]); assert.equal
 r = await as(akash, "select scan_pass($1) j", [bA.pass_no + "-4"]); assert.equal(r.rows[0].j.result, "not_found"); ok("person number beyond the booking is rejected");
 r = await as(akash, "select scan_pass($1) j", [bR.pass_no + "-1"]); assert.equal(r.rows[0].j.result, "cancelled"); ok("cancelled pass flagged");
 r = await as(akash, "select scan_pass($1) j", [bDesk.pass_no + "-1"]); assert.equal(r.rows[0].j.result, "unpaid"); ok("unpaid pass flagged");
-r = await as(asha, "select count(*)::int n from checkins"); assert.equal(r.rows[0].n, 0); ok("residents cannot read counter records");
+r = await as(ravi, "select count(*)::int n from checkins"); assert.equal(r.rows[0].n, 0); ok("residents cannot read other people's counter records");
+
+// --- collect together: one QR for several passes ---
+const bG = (await as(asha, "select * from create_booking($1,$2,1,1,'mobile','Asha Patel','9800000001','asha@example.com')", [ev, [s1, s2]])).rows[0];
+await as(akash, "select mark_paid($1,'cash',$2)", [bG.id, bG.amount]);
+const gTok = `https://site/#G:${bA.pass_no}:1.2.3,${bG.pass_no}:1.2,${bDesk.pass_no}:1`;
+await fails(asha, "select scan_group($1)", [gTok], /Committee only/); ok("residents cannot scan a group QR");
+r = await as(akash, "select scan_group($1, false) j", [gTok]); let j = r.rows[0].j;
+const res = it => j.items.find(x => x.pass_no === it[0] && x.person === it[1]).result;
+assert.equal(j.ready, 3); assert.equal(res([bA.pass_no, 2]), "already_given"); assert.equal(res([bDesk.pass_no, 1]), "unpaid");
+ok("preview: 3 ready, person 2 & 3 of the first booking already given, unpaid desk pass refused");
+r = await as(akash, "select scan_group($1) j", [gTok]); j = r.rows[0].j;
+assert.equal(j.given_now, 3); assert.equal(j.give, 3); ok("one scan marks all 3 remaining passes as given");
+r = await as(akash, "select scan_group($1) j", [gTok]); j = r.rows[0].j;
+assert.equal(j.give, 0); assert.ok(j.items.every(x => ["already_given", "unpaid"].includes(x.result))); ok("scanning the same group QR again gives nothing");
+r = await as(akash, "select scan_group($1) j", [`G:${bA.pass_no}:1.1.1`]); assert.equal(r.rows[0].j.total, 1); ok("duplicate entries in a QR are counted once");
+const ev2 = (await as(akash, "insert into events(code,name_en,open_date,close_date,published,adult_rate) values ('OTH','Other',current_date-1,current_date+1,true,10) returning id")).rows[0].id;
+const s9 = (await as(akash, "insert into event_sessions(event_id,date) values ($1,current_date) returning id", [ev2])).rows[0].id;
+const bO = (await as(asha, "select * from create_booking($1,$2,1,0,'mobile','Asha','9800000001',null)", [ev2, [s9]])).rows[0];
+r = await as(akash, "select scan_group($1, false) j", [`G:${bG.pass_no}:1,${bO.pass_no}:1`]); j = r.rows[0].j;
+assert.equal(j.items[1].result, "other_event"); ok("passes from a different event are not mixed into the group");
+r = await as(asha, "select count(*)::int n from checkins"); assert.ok(r.rows[0].n >= 4); ok("resident can see hand-over records of own passes");
+r = await as(ravi, "select count(*)::int n from checkins"); assert.equal(r.rows[0].n, 0); ok("…but not anyone else's");
 
 // --- public pass link ---
 r = await as(null, "select public_pass($1) p", [bA.pass_no + "-1"]); assert.equal(r.rows[0].p.flat, "E-903"); ok("WhatsApp pass link works without login");

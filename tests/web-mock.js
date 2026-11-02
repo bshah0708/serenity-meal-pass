@@ -44,7 +44,8 @@
     if (table === "bookings") return rows.filter(r => r.user_id === me.id);
     if (table === "profiles") return rows.filter(r => r.id === me.id);
     if (table === "events") return rows.filter(r => r.published);
-    if (table === "checkins" || table === "staff_requests") return rows.filter(r => r.user_id === me.id);
+    if (table === "checkins") return rows.filter(r => (T.bookings.find(b => b.id === r.booking_id) || {}).user_id === me.id);
+    if (table === "staff_requests") return rows.filter(r => r.user_id === me.id);
     if (table === "staff") return rows.filter(r => r.user_id === me.id);
     return rows;
   };
@@ -107,6 +108,22 @@
       if (!b) return null; const ev = T.events.find(e => e.id === b.event_id);
       return { pass_no: b.pass_no, person: n, adults: b.adults, children: b.children, flat: b.block + "-" + b.flat_no, name: b.name, status: b.status, amount: b.amount, pass_type: b.pass_type,
         event: { name_gu: ev.name_gu, name_en: ev.name_en, venue: ev.venue }, sessions: T.booking_sessions.filter(x => x.booking_id === b.id).map(x => T.event_sessions.find(s => s.id === x.session_id)) };
+    },
+    scan_group(a) {
+      const t = a.p_token.replace(/^.*#/, "").toUpperCase().slice(2), td = new Date().toISOString().slice(0, 10), items = [], seen = new Set();
+      let ev = null, ready = 0, now = 0; const flats = new Set(), names = new Set();
+      t.split(",").forEach(part => { const [pno, nums] = part.split(":"); const b = T.bookings.find(x => x.pass_no === pno);
+        (nums || "").split(".").map(Number).forEach(n => { if (seen.has(pno + n)) return; seen.add(pno + n); let res;
+          if (!b || n < 1 || n > b.adults + b.children) res = "not_found";
+          else { ev = ev || b.event_id; flats.add(b.block + "-" + b.flat_no); names.add(b.name);
+            const ss = T.booking_sessions.filter(x => x.booking_id === b.id).map(x => T.event_sessions.find(s => s.id === x.session_id)).filter(s => s.date === td);
+            if (b.event_id !== ev) res = "other_event"; else if (b.status === "cancelled") res = "cancelled"; else if (b.status !== "paid") res = "unpaid";
+            else if (!ss.length) res = "no_session_today";
+            else { const open = ss.find(s => !T.checkins.some(c => c.booking_id === b.id && c.session_id === s.id && c.person_no === n));
+              if (!open) res = "already_given"; else if (a.p_auto) { T.checkins.push({ booking_id: b.id, session_id: open.id, person_no: n, given_at: new Date().toISOString() }); res = "given"; now++; } else { res = "ready"; ready++; } } }
+          items.push({ pass_no: pno, person: n, type: b ? (n <= b.adults ? "Adult" : "Child") : null, flat: b && b.block + "-" + b.flat_no, name: b && b.name, result: res, session: "Day 1" }); }); });
+      const e = T.events.find(x => x.id === ev) || {};
+      return { result: "group", give: now + ready, given_now: now, ready, total: items.length, flats: [...flats], names: [...names], items, event: { name_gu: e.name_gu, name_en: e.name_en } };
     },
     scan_pass(a) {
       const t = a.p_token; let b = T.bookings.find(x => x.pass_no === t), n = 0;
