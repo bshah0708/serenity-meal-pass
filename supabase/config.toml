@@ -1,12 +1,13 @@
 # Supabase CLI configuration — used by `supabase start` (local) and `supabase config push` (hosted).
 project_id = "serenity-meal-pass"
+# Hosted project: cnnpktykuoiygmuezozn (ap-south-1, Mumbai) — https://cnnpktykuoiygmuezozn.supabase.co
 
 [api]
 schemas = ["public"]
 max_rows = 2000
 
 [auth]
-site_url = "https://YOUR-GITHUB-USER.github.io/serenity-meal-pass"
+site_url = "https://bshah0708.github.io/serenity-meal-pass"
 additional_redirect_urls = ["http://localhost:5173"]
 jwt_expiry = 3600
 enable_signup = true
@@ -23,7 +24,7 @@ max_frequency = "60s"
 # SMS goes through the MSG91 hook below, so no built-in provider is enabled.
 [auth.hook.send_sms]
 enabled = true
-uri = "https://YOUR-PROJECT-REF.supabase.co/functions/v1/sms-hook"
+uri = "https://cnnpktykuoiygmuezozn.supabase.co/functions/v1/sms-hook"
 secrets = "env(SEND_SMS_HOOK_SECRETS)"
 
 [auth.rate_limit]

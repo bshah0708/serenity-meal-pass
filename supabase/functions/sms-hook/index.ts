@@ -17,13 +17,14 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { error: { http_code: 405, message: "Method not allowed" } });
 
   const raw = await req.text();
-  const secret = (Deno.env.get("SEND_SMS_HOOK_SECRETS") ?? "").replace("v1,whsec_", "");
-  let payload: { user: { phone: string }; sms: { otp: string } };
-  try {
-    payload = new Webhook(secret).verify(raw, Object.fromEntries(req.headers)) as typeof payload;
-  } catch (_e) {
-    return json(401, { error: { http_code: 401, message: "Invalid signature" } });
+  // Several secrets may be configured during rotation ("v1,whsec_new|v1,whsec_old"); accept any of them.
+  const secrets = (Deno.env.get("SEND_SMS_HOOK_SECRETS") ?? "").split("|").map((x) => x.trim().replace("v1,whsec_", "")).filter(Boolean);
+  if (!secrets.length) return json(500, { error: { http_code: 500, message: "SMS hook secret is not configured" } });
+  let payload: { user: { phone: string }; sms: { otp: string } } | null = null;
+  for (const sec of secrets) {
+    try { payload = new Webhook(sec).verify(raw, Object.fromEntries(req.headers)) as NonNullable<typeof payload>; break; } catch (_e) { /* try next */ }
   }
+  if (!payload) return json(401, { error: { http_code: 401, message: "Invalid signature" } });
 
   const phone = (payload.user?.phone ?? "").replace(/\D/g, "");   // e.g. 919724212198
   const otp = payload.sms?.otp ?? "";
