@@ -183,3 +183,16 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .rrow small{display:block;color:var(--muted);font-size:.74rem}
 #ctLive{margin-bottom:14px}
 @media (max-width:700px){.bk td[data-l="given"]{grid-column:1/4;grid-row:6;margin-top:6px}.bk td[data-l="act"]{grid-row:7}}
+
+/* compact resident header + profile icon */
+.mebtn{width:38px;height:38px;border-radius:50%;border:0;background:var(--leaf);color:var(--leaf-ink);font-family:var(--display);font-weight:700;font-size:1.05rem;display:grid;place-items:center;cursor:pointer;flex:none}
+.mebtn[hidden]{display:none}
+.hero.mini{padding:14px 16px;margin-top:12px}
+.hero.mini::after{width:110px;height:100px;right:-14px;bottom:-14px}
+.hero.mini .hero-t{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;position:relative}
+.hero.mini h2{font-size:1.15rem;margin:0}
+.hero.mini .acts{margin-top:0;gap:6px;flex-wrap:nowrap}
+.hero.mini .btn.sm{padding:6px 12px;min-height:34px;font-size:.85rem}
+.hero.mini p.hint{font-size:.74rem;line-height:1.4;opacity:.88;margin:8px 0 0;max-width:none}
+.hero.mini p.hint .gu{display:block}
+@media (max-width:520px){.mebtn:not([hidden]) ~ #logout{display:none}}

@@ -151,7 +151,7 @@ function subscribeLive() {
 let otpPhone = "", resendT = 0;
 function showLogin() {
   $("#login").hidden = false; $("#resident").hidden = true; $("#admin").hidden = true;
-  $("#logout").hidden = true; $("#modeSwitch").hidden = true; $("#roleBadge").hidden = true;
+  $("#logout").hidden = true; $("#meBtn").hidden = true; $("#modeSwitch").hidden = true; $("#roleBadge").hidden = true;
 }
 $("#phoneForm").addEventListener("submit", async e => {
   e.preventDefault();
@@ -188,14 +188,13 @@ function profileComplete() { const p = S.profile || {}; return !!(p.name && p.bl
 function renderAccount() {
   const box = $("#acctBox"), pf = S.profile || {};
   const phone10 = String(pf.phone || S.user.phone || "").slice(-10);
+  const me = $("#meBtn");
   if (profileComplete() && !S.editProfile) {
-    box.innerHTML = `<div class="card acct"><div class="av">${esc(pf.name.trim().charAt(0).toUpperCase())}</div>
-      <div style="min-width:0;flex:1"><div class="small muted">Logged in · your bookings are private</div><b style="font-size:1.05rem">${esc(pf.name)}</b>
-      <div class="small"><b>${esc(pf.block)}-${esc(pf.flat_no)}</b> · <span class="mono">${esc(phone10)}</span> · ${esc(pf.email)}</div></div>
-      <button class="btn sm" type="button" id="pfEdit">Edit</button></div>`;
-    $("#pfEdit").onclick = () => { S.editProfile = true; renderAccount(); };
+    me.textContent = pf.name.trim().charAt(0).toUpperCase(); me.hidden = false;
+    box.innerHTML = ""; $("#acct").hidden = true;
     return;
   }
+  me.hidden = true; $("#acct").hidden = false;
   box.innerHTML = `<div class="card"><h3 class="gu">તમારી વિગતો · Your details</h3>
     <p class="small muted" style="margin:4px 0 12px">One-time setup. Passes are booked for this flat. Only you and the committee can see your bookings.</p>
     <div class="grid2">
@@ -218,6 +217,20 @@ function renderAccount() {
     S.profile = data; S.editProfile = false; toast("Details saved"); render();
   };
 }
+
+function profileSheet() {
+  const pf = S.profile || {}, phone10 = String(pf.phone || S.user.phone || "").slice(-10);
+  openSheet(`<header><div><div class="muted small gu">મારી વિગતો</div><h2>My profile</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+    <div class="acct"><div class="av">${esc((pf.name || "?").trim().charAt(0).toUpperCase())}</div>
+      <div style="min-width:0"><b style="font-size:1.05rem">${esc(pf.name || "")}</b>
+      <div class="small"><b>${esc(pf.block)}-${esc(pf.flat_no)}</b> · <span class="mono">${esc(phone10)}</span></div>
+      <div class="small muted" style="overflow-wrap:anywhere">${esc(pf.email || "")}</div></div></div>
+    <p class="small muted" style="margin:12px 0">Your bookings are private: only you and the committee can see them.</p>
+    <div class="row"><button class="btn primary" type="button" id="pfEdit">Edit details</button><button class="btn" type="button" id="pfOut">Log out</button></div>`);
+  $("#pfEdit").onclick = () => { closeSheet(); S.editProfile = true; renderAccount(); $("#acct").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  $("#pfOut").onclick = () => $("#logout").click();
+}
+$("#meBtn").onclick = profileSheet;
 
 /* ───────────── resident: events & booking ───────────── */
 function eventCard(ev) {
@@ -1177,6 +1190,7 @@ function render() {
   if (!staff) mode = "resident"; else if (!userPicked) mode = "admin";
   $("#mAdmin").setAttribute("aria-pressed", String(mode === "admin")); $("#mRes").setAttribute("aria-pressed", String(mode === "resident"));
   $("#resident").hidden = mode !== "resident"; $("#admin").hidden = mode !== "admin";
+  if (mode !== "resident") $("#meBtn").hidden = true;
   if (!S.ready) return;
   if (mode === "resident") { renderResident(); return; }
   $$("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));

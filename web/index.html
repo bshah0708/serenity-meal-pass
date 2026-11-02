@@ -51,6 +51,7 @@
     <button type="button" id="mAdmin" aria-pressed="true" title="Committee"><svg class="ic sm"><use href="#i-shield"/></svg><span>Committee</span></button>
     <button type="button" id="mRes" aria-pressed="false" title="Resident view"><svg class="ic sm"><use href="#i-user"/></svg><span>Resident</span></button>
   </div>
+  <button type="button" class="mebtn" id="meBtn" title="My profile" aria-label="My profile" hidden>?</button>
   <button type="button" class="iconbtn" id="logout" title="Log out" hidden><svg class="ic"><use href="#i-logout"/></svg></button>
 </div></header>
 
@@ -89,14 +90,15 @@
 
   <!-- RESIDENT -->
   <main id="resident" hidden>
-    <section class="hero">
-      <h2 class="gu">ભોજન / નાસ્તા પાસ બુક કરો</h2>
-      <p class="gu">સોસાયટીના કાર્યક્રમ માટે પાસ અહીં બુક કરો. મોબાઇલ પાસ કે પ્રિન્ટેડ પાસ, તમારી પસંદ.</p>
-      <p>Book meal and snack passes for society events. Show a mobile pass on your phone or collect a printed one.</p>
-      <div class="acts">
-        <a class="btn" href="#evlist"><svg class="ic sm"><use href="#i-ticket"/></svg>Book a pass</a>
-        <a class="btn ghost" href="#mypasses"><svg class="ic sm"><use href="#i-ticket"/></svg>My passes</a>
+    <section class="hero mini">
+      <div class="hero-t">
+        <h2 class="gu">ભોજન / નાસ્તા પાસ</h2>
+        <div class="acts">
+          <a class="btn sm" href="#evlist"><svg class="ic sm"><use href="#i-ticket"/></svg>Book</a>
+          <a class="btn sm ghost" href="#mypasses">My passes</a>
+        </div>
       </div>
+      <p class="hint"><span class="gu">કાર્યક્રમ પસંદ કરી પાસ બુક કરો · મોબાઇલ કે પ્રિન્ટેડ પાસ.</span> Pick an event, book, then show the QR on your phone or collect a printed pass.</p>
     </section>
     <section class="section" id="acct"><div id="acctBox"></div></section>
     <section class="section" id="evlist">

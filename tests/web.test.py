@@ -55,7 +55,10 @@ with sync_playwright() as pw:
 
     print("Resident")
     p.fill("#pfName", "Asha Patel"); p.select_option("#pfBlock", "E"); p.select_option("#pfFlat", "904"); p.fill("#pfMail", "asha@example.com"); p.click("#pfSave"); p.wait_for_timeout(400)
-    check("E-904" in p.inner_text("#acctBox"), "profile saved and shown")
+    check(p.is_visible("#meBtn") and not p.is_visible("#acct"), "profile collapses to an icon once saved")
+    p.click("#meBtn"); p.wait_for_timeout(150)
+    check("E-904" in p.inner_text(".sheet"), "profile icon opens details (E-904)")
+    p.keyboard.press("Escape")
     check(p.locator("#resEvents .ev").count() == 2, "published events listed")
     check(p.locator("#myList .passwrap").count() == 0, "resident sees none of the other residents' bookings")
     p.click("#resEvents [data-book]"); p.wait_for_timeout(300)
@@ -228,6 +231,8 @@ with sync_playwright() as pw:
         check(p.evaluate(no_hscroll), f"{name} {w}px: no sideways scrolling on resident home")
         check(errs == [], f"no page errors {errs}")
     p.screenshot(path=str(SHOTS / "10_android_resident.png"))
+    p.click("#meBtn"); p.wait_for_timeout(200); check(p.is_visible("#pfEdit"), "profile sheet opens from the app bar icon")
+    p.screenshot(path=str(SHOTS / "15_profile_sheet.png"))
     b.close()
 
 print("\n" + ("All web checks passed." if not fails else f"{len(fails)} check(s) failed."))
