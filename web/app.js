@@ -980,6 +980,51 @@ $("#newEvent").onclick = () => eventForm();
 $("#bkBlock").innerHTML = blockOpts(true);
 try { const t = localStorage.getItem("ss_tab"); if (t) tab = t; } catch (e) {}
 
+/* ───────────── install as an app (Android + iPhone) ───────────── */
+const UA = navigator.userAgent || "";
+const isIOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/.test(UA);
+const inAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line\/|; wv\)|GSA\//.test(UA);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+let deferredPrompt = null;
+function installSnoozed() { try { return Date.now() < +(localStorage.getItem("ss_install_snooze") || 0); } catch (e) { return false; } }
+function snoozeInstall(days) { try { localStorage.setItem("ss_install_snooze", String(Date.now() + days * 864e5)); } catch (e) {} }
+function showInstallBar() {
+  const bar = $("#installBar");
+  if (isStandalone() || installSnoozed() || !(isIOS || isAndroid || deferredPrompt)) { bar.hidden = true; return; }
+  $("#ibInstall").textContent = deferredPrompt ? "Install" : "How to install";
+  bar.hidden = false;
+}
+function installHelp() {
+  const share = `<span class="glyph" aria-hidden="true"><svg class="ic sm" viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg></span>`;
+  const plus = `<span class="glyph" aria-hidden="true"><svg class="ic sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg></span>`;
+  const dots = `<span class="glyph" aria-hidden="true"><b>⋮</b></span>`;
+  let steps;
+  if (isIOS && inAppBrowser) steps = [`Tap the <b>⋯</b> or <b>Share</b> button and choose <b>Open in Safari</b>.`, `In Safari, tap ${share} <b>Share</b>.`, `Choose ${plus} <b>Add to Home Screen</b>, then <b>Add</b>.`];
+  else if (isIOS) steps = [`Tap ${share} <b>Share</b> at the bottom of Safari (top on iPad).`, `Scroll down and choose ${plus} <b>Add to Home Screen</b>.`, `Tap <b>Add</b>. The Meal Pass icon appears on your home screen.`];
+  else if (inAppBrowser) steps = [`Tap ${dots} and choose <b>Open in Chrome</b>.`, `In Chrome, tap ${dots} → <b>Install app</b> (or <b>Add to Home screen</b>).`, `Tap <b>Install</b>.`];
+  else steps = [`Tap ${dots} in the top-right corner of Chrome.`, `Choose <b>Install app</b> (or <b>Add to Home screen</b>).`, `Tap <b>Install</b>. The Meal Pass icon appears with your apps.`];
+  const o = openSheet(`<header><div><div class="muted small">${isIOS ? "iPhone / iPad" : "Android"}</div><h2 class="gu">એપ ઇન્સ્ટોલ કરો · Install the app</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+    <p class="small muted" style="margin:0">Free, no app store needed. It opens full-screen, keeps you logged in, and your passes are one tap away.</p>
+    <ol class="ios-steps">${steps.map(s => `<li><span>${s}</span></li>`).join("")}</ol>
+    <div class="row" style="justify-content:flex-end"><button class="btn primary x2" type="button">Got it</button></div>`);
+  $(".x2", o).onclick = closeSheet;
+}
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredPrompt = e; showInstallBar(); });
+window.addEventListener("appinstalled", () => { deferredPrompt = null; $("#installBar").hidden = true; toast("Meal Pass installed"); });
+$("#ibInstall").onclick = async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice.catch(() => ({ outcome: "dismissed" }));
+    deferredPrompt = null; if (outcome !== "accepted") snoozeInstall(3);
+    showInstallBar(); return;
+  }
+  installHelp();
+};
+$("#ibClose").onclick = () => { snoozeInstall(7); $("#installBar").hidden = true; };
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+showInstallBar();
+
 /* ───────────── boot ───────────── */
 async function onSession(session) {
   S.user = session ? session.user : null; S.ready = false;

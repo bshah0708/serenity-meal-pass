@@ -20,3 +20,21 @@ input.otp{font-family:var(--mono);font-size:1.6rem;letter-spacing:.5em;text-alig
 .spinner{width:22px;height:22px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--leaf);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .center{display:grid;place-items:center;padding:40px 0}
+
+/* ── installable app (iOS + Android) ── */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+button,a,label,.pick{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.tabs button,.switch button,.btn{-webkit-user-select:none;user-select:none}
+/* iPhone zooms into any field with text smaller than 16px — keep fields at 16px on phones */
+@media (max-width:760px){input,select,textarea{font-size:16px!important}input.otp{font-size:1.6rem!important}}
+.installbar{display:grid;grid-template-columns:44px 1fr auto auto;align-items:center;gap:6px 12px;margin-top:14px;padding:12px 10px 12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+@media (max-width:520px){.installbar{grid-template-columns:44px 1fr auto}.installbar #ibInstall{grid-column:2/3;grid-row:2;justify-self:start}.installbar .ib-x{grid-column:3;grid-row:1}}
+.installbar img{width:44px;height:44px;border-radius:12px;flex:none;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.ib-text{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.ib-text span{font-size:.84rem;color:var(--muted)}
+.ib-x{border:0;background:none;color:var(--muted);font-size:1.4rem;width:34px;height:34px;border-radius:50%;cursor:pointer;flex:none}
+.ios-steps{display:grid;gap:12px;margin:0;padding:0;list-style:none;counter-reset:s}
+.ios-steps li{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.ios-steps li::before{counter-increment:s;content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--leaf);color:var(--leaf-ink);display:grid;place-items:center;font-weight:700;flex:none}
+.ios-steps .glyph{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--sunk);vertical-align:middle;margin:0 2px}
+@media (display-mode: standalone){.foot{padding-bottom:8px}}

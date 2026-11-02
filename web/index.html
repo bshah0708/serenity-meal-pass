@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Serenity Space Meal Pass</title>
 <meta name="theme-color" content="#1F5A33">
-<link rel="icon" href="assets/tree.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="assets/favicon-64.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Meal Pass">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+Bhai+2:wght@500;600;700&family=Figtree:wght@400;500;600;700;800&family=Hind+Vadodara:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
@@ -48,6 +55,12 @@
 </div></header>
 
 <div class="wrap">
+  <div id="installBar" class="installbar" hidden role="region" aria-label="Install the app">
+    <img src="assets/icon-192.png" alt="" width="44" height="44">
+    <div class="ib-text"><b class="gu">એપ ઇન્સ્ટોલ કરો</b><span>Install the Meal Pass app on your phone for one-tap access.</span></div>
+    <button class="btn primary sm" type="button" id="ibInstall">Install</button>
+    <button class="ib-x" type="button" id="ibClose" aria-label="Not now">×</button>
+  </div>
   <div id="sysNote"></div>
 
   <!-- LOGIN -->

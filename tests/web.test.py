@@ -20,8 +20,14 @@ def check(cond, msg):
     print(("  ✓ " if cond else "  ✗ ") + msg)
     if not cond: fails.append(msg)
 
-def page_for(b, role, logged_in=True, w=400, h=860):
-    ctx = b.new_context(viewport={"width": w, "height": h})
+IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+
+def page_for(b, role, logged_in=True, w=400, h=860, ua=None, sw=False):
+    # service workers fetch files themselves, bypassing the test's stand-in for Supabase — keep them off except for the install checks
+    opts = {"viewport": {"width": w, "height": h}, "service_workers": "allow" if sw else "block"}
+    if ua: opts.update(user_agent=ua, is_mobile=True, has_touch=True, device_scale_factor=2)
+    ctx = b.new_context(**opts)
     p = ctx.new_page(); errs = []
     p.on("pageerror", lambda e: errs.append(str(e)))
     p.add_init_script(f"window.__MOCK_ROLE={role!r};window.__MOCK_LOGGED_IN={'true' if logged_in else 'false'};")
@@ -107,6 +113,36 @@ with sync_playwright() as pw:
     p.goto(WEB.replace("index.html", "pass.html") + "#NOPE-A101-XXXXX"); p.wait_for_timeout(500)
     check("not found" in p.inner_text("body"), "unknown pass shows not found")
     check(errs == [], f"no page errors {errs}")
+    print("Phone app (iOS + Android)")
+    no_hscroll = "document.documentElement.scrollWidth <= window.innerWidth + 1"
+    p, errs = page_for(b, "resident", logged_in=False, w=375, h=812, ua=IPHONE, sw=True)
+    check(p.evaluate("!!document.querySelector('link[rel=manifest]') && !!document.querySelector('link[rel=apple-touch-icon]')"), "manifest and iPhone icon linked")
+    m = p.evaluate("fetch('manifest.webmanifest').then(r=>r.json())")
+    check(m["display"] == "standalone" and any(i.get("purpose") == "maskable" for i in m["icons"]), "manifest: standalone with maskable icon")
+    p.wait_for_timeout(800)
+    check(p.evaluate("navigator.serviceWorker.getRegistration().then(r=>!!r)"), "service worker registered (needed for Android install)")
+    check(p.is_visible("#installBar"), "install banner shown on iPhone")
+    p.click("#ibInstall"); p.wait_for_timeout(300)
+    check("Add to Home Screen" in p.inner_text("#ovl"), "iPhone gets Add to Home Screen steps")
+    p.screenshot(path=str(SHOTS / "9_iphone_install.png"))
+    p.click("#ovl .x2"); p.click("#ibClose"); p.wait_for_timeout(200)
+    check(not p.is_visible("#installBar"), "Not now hides the banner")
+    p.reload(); p.wait_for_timeout(700)
+    check(not p.is_visible("#installBar"), "dismissal remembered after reload")
+    check(p.evaluate("getComputedStyle(document.querySelector('#lgPhone')).fontSize") == "16px", "fields are 16px so iPhone does not zoom in")
+    check(p.evaluate(no_hscroll), "no sideways scrolling on iPhone login (375 px)")
+    check(errs == [], f"no page errors {errs}")
+    for w, ua, name in [(375, IPHONE, "iPhone"), (360, ANDROID, "Android")]:
+        p, errs = page_for(b, "super", w=w, h=780, ua=ua)
+        bad = []
+        for t in ["overview", "events", "bookings", "counter", "reports", "settings"]:
+            p.click(f"#tabs [data-tab={t}]"); p.wait_for_timeout(150)
+            if not p.evaluate(no_hscroll): bad.append(t)
+        check(not bad, f"{name} {w}px: no sideways scrolling on committee screens {bad}")
+        p.click("#mRes"); p.wait_for_timeout(200)
+        check(p.evaluate(no_hscroll), f"{name} {w}px: no sideways scrolling on resident home")
+        check(errs == [], f"no page errors {errs}")
+    p.screenshot(path=str(SHOTS / "10_android_resident.png"))
     b.close()
 
 print("\n" + ("All web checks passed." if not fails else f"{len(fails)} check(s) failed."))
