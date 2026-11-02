@@ -649,6 +649,49 @@ function evStats(ev) {
   return r;
 }
 
+/* ── meals given (live): per session — booked, paid (to serve), given, left ── */
+function mealStats(ev) {
+  const out = (ev.sessions || []).map(s => ({ s, booked: 0, paid: 0, given: 0, unpaid: 0 }));
+  const at = Object.fromEntries(out.map((x, i) => [x.s.id, x]));
+  S.bookings.filter(b => b.event_id === ev.id && active(b)).forEach(b => b.sessions.forEach(sid => {
+    const x = at[sid]; if (!x) return; const n = b.adults + b.children;
+    x.booked += n; if (b.status === "paid") x.paid += n; else x.unpaid += n;
+    x.given += Object.keys((S.checkins[b.id] || {})[sid] || {}).length;
+  }));
+  out.forEach(x => { x.left = Math.max(0, x.paid - x.given); x.today = x.s.date === today(); });
+  return out;
+}
+function recentGiven(ev, limit) {
+  const out = [];
+  S.bookings.filter(b => b.event_id === ev.id).forEach(b => Object.entries(S.checkins[b.id] || {}).forEach(([sid, m]) => Object.entries(m).forEach(([n, v]) => {
+    const s = (ev.sessions || []).find(x => x.id === sid); out.push({ at: v.at, b, n: +n, s }); })));
+  return out.sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, limit);
+}
+function mealRow(x, big) {
+  const pct = v => x.booked ? Math.min(100, v / x.booked * 100) : 0;
+  return `<div class="mrow${x.today ? " today" : ""}${big ? " big" : ""}">
+    <div class="spread small"><span><b>${esc(x.s.label || x.s.meal)}</b> · ${fd(x.s.date)}${x.today ? ' <span class="chip gold">Today</span>' : ""}</span>
+      <span class="num"><b class="g">${x.given}</b> given · <b>${x.left}</b> left${x.unpaid ? ` · <span class="u">${x.unpaid} unpaid</span>` : ""}</span></div>
+    <div class="mbar" title="${x.given} given of ${x.paid} paid (${x.booked} booked)"><i class="p" style="width:${pct(x.paid)}%"></i><i class="g" style="width:${pct(x.given)}%"></i></div>
+    <div class="small muted">${x.booked} booked · ${x.paid} paid</div></div>`;
+}
+function liveMealsPanel(ev, recentN) {
+  const ms = mealStats(ev), td = ms.filter(x => x.today), focus = td.length ? td : ms;
+  const sum = k => focus.reduce((a, x) => a + x[k], 0);
+  const rec = recentN ? recentGiven(ev, recentN) : [];
+  return `<div class="panel live">
+    <div class="spread"><h3><span class="dot" aria-hidden="true"></span>Meals given <span class="muted small" style="font-family:var(--body)">${td.length ? "today · live" : "all sessions · live"}</span></h3></div>
+    <div class="mbig"><div><b class="g">${sum("given")}</b><span>given</span></div><div><b>${sum("left")}</b><span>left to give</span></div><div><b>${sum("paid")}</b><span>paid passes</span></div>${sum("unpaid") ? `<div><b class="u">${sum("unpaid")}</b><span>unpaid</span></div>` : ""}</div>
+    <div class="mrows">${ms.map(x => mealRow(x, x.today)).join("") || `<p class="muted small">No sessions.</p>`}</div>
+    ${recentN ? `<div class="lab" style="margin-top:4px">Recent hand-overs</div><div class="recent">${rec.length ? rec.map(r => `<div class="rrow"><span class="mono">${hm(r.at)}</span><span><b>${esc(r.b.flat)}</b> · ${r.n <= r.b.adults ? "Adult" : "Child"} ${r.n}<small>${esc(r.b.name)} · ${esc(r.s ? (r.s.label || r.s.meal) : "")}</small></span><span class="mono small muted">${esc(r.b.pass_no.slice(-5))}</span></div>`).join("") : `<p class="muted small" style="margin:0">Nothing handed over yet.</p>`}</div>` : ""}
+  </div>`;
+}
+function bookingGiven(b) {
+  const ev = evById(b.event_id) || {}, n = b.adults + b.children, td = (ev.sessions || []).filter(s => s.date === today() && b.sessions.includes(s.id));
+  const cnt = ids => ids.reduce((a, sid) => a + Object.keys((S.checkins[b.id] || {})[sid] || {}).length, 0);
+  if (td.length) { const g = cnt(td.map(s => s.id)), t = n * td.length; return { g, t, label: `${g}/${t} today`, cls: g >= t ? "ok" : g ? "warn" : "" }; }
+  const g = cnt(b.sessions), t = n * b.sessions.length; return { g, t, label: `${g}/${t}`, cls: g >= t && t ? "ok" : g ? "warn" : "" };
+}
 function renderOverview() {
   eventSelect($("#ovEvent"));
   const ev = evById($("#ovEvent").value), box = $("#ovBody");
@@ -664,11 +707,11 @@ function renderOverview() {
       <div class="stat" style="border-top:3px solid var(--marigold)"><div class="k">Pending</div><div class="v" style="color:var(--warn)">${inr(r.pending)}</div>${r.upiVerify ? `<div class="small" style="color:var(--info)">${r.upiVerify} UPI ref${r.upiVerify > 1 ? "s" : ""} to verify</div>` : ""}</div>
       ${r.cost > 0 ? `<div class="stat"><div class="k">Society subsidy</div><div class="v">${inr(r.subsidy)}</div><div class="small muted">Cost ${inr(r.cost)}</div></div>` : ""}
       <div class="stat"><div class="k">Passes printed</div><div class="v">${r.printed}<small> / ${r.passes}</small></div></div>
+      ${(() => { const ms = mealStats(ev), td = ms.filter(x => x.today), f = td.length ? td : ms, g = f.reduce((a, x) => a + x.given, 0), pd = f.reduce((a, x) => a + x.paid, 0);
+        return `<div class="stat" style="border-top:3px solid var(--leaf)"><div class="k">Meals given${td.length ? " today" : ""}</div><div class="v" style="color:var(--leaf)">${g}<small> / ${pd}</small></div><div class="bar" style="margin-top:6px"><i style="width:${pd ? Math.min(100, g / pd * 100) : 0}%"></i></div></div>`; })()}
     </div>
     <div class="grid2">
-      <div class="panel"><h3 style="margin-bottom:10px">Headcount per session <span class="muted small" style="font-family:var(--body)">for the caterer</span></h3>
-        ${(ev.sessions || []).map(s => { const x = r.bySess[s.id] || { a: 0, c: 0, served: 0 }; const t = x.a + x.c; return `<div style="margin-bottom:10px"><div class="spread small"><span>${esc(s.label || s.meal)} · ${fd(s.date)}</span><span class="num"><b>${t}</b> (${x.a}A ${x.c}C)${x.served ? ` · given ${x.served}` : ""}</span></div><div class="bar"><i style="width:${t / maxS * 100}%"></i></div></div>`; }).join("") || `<p class="muted small">No sessions.</p>`}
-      </div>
+      ${liveMealsPanel(ev, 6)}
       <div class="panel"><h3 style="margin-bottom:10px">Block-wise</h3>
         <div class="tablewrap" style="border:0;box-shadow:none"><table><thead><tr><th>Block</th><th class="r">Passes</th><th class="r">Persons</th><th class="r">Amount</th><th class="r">Pending</th></tr></thead><tbody>
         ${BLOCKS.map(b => { const x = r.byBlock[b]; return `<tr><td>${b}</td><td class="r num">${x.passes}</td><td class="r num">${x.persons}</td><td class="r num">${inr(x.amount)}</td><td class="r num"${x.pending ? ' style="color:var(--warn)"' : ""}>${inr(x.pending)}</td></tr>`; }).join("")}
@@ -798,6 +841,7 @@ function filteredBookings() {
     const s = bStatus(b).k;
     if (pt && b.pass_type !== pt) return false;
     if (st === "unprinted") { if (s === "cancelled" || b.pass_type === "mobile" || b.printed_at) return false; }
+    else if (st === "ungiven") { if (s !== "paid" && s !== "free") return false; const g = bookingGiven(b); if (g.g >= g.t) return false; }
     else if (st === "unsent") { if (s === "cancelled" || b.pass_type !== "mobile" || b.email_sent_at || b.wa_sent_at) return false; }
     else if (st) { if (s !== st) return false; } else if (s === "cancelled") return false;
     if (blk && b.block !== blk) return false;
@@ -813,13 +857,14 @@ function renderBookings() {
   if (!ev) { box.innerHTML = `<div class="empty"><b>No events yet</b>Create an event first, then bookings will appear here.</div>`; $("#bkBulk").innerHTML = ""; return; }
   if (!list.length) { box.innerHTML = `<div class="empty"><b>No bookings match</b>${S.bookings.some(b => b.event_id === ev.id) ? "Try clearing the filters." : "Residents' bookings will appear here as soon as they book."}</div>`; $("#bkBulk").innerHTML = ""; return; }
   const allSel = list.every(b => sel[b.id]);
-  box.innerHTML = `<div class="tablewrap bk"><table><thead><tr><th><input type="checkbox" id="selAll"${allSel ? " checked" : ""} aria-label="Select all"></th><th>Pass no.</th><th>Flat</th><th>Name</th><th>Mobile</th><th>Sessions</th><th class="r">A</th><th class="r">C</th><th class="r">Amount</th><th>Status</th><th>Pass</th><th></th></tr></thead><tbody>
+  box.innerHTML = `<div class="tablewrap bk"><table><thead><tr><th><input type="checkbox" id="selAll"${allSel ? " checked" : ""} aria-label="Select all"></th><th>Pass no.</th><th>Flat</th><th>Name</th><th>Mobile</th><th>Sessions</th><th class="r">A</th><th class="r">C</th><th class="r">Amount</th><th>Status</th><th>Given</th><th>Pass</th><th></th></tr></thead><tbody>
   ${list.map(b => { const st = bStatus(b); return `<tr>
     <td data-l="sel"><input type="checkbox" data-sel="${b.id}"${sel[b.id] ? " checked" : ""} aria-label="Select ${esc(b.pass_no)}"></td>
     <td data-l="pno" class="mono">${esc(b.pass_no)}</td><td data-l="flat"><b>${esc(b.flat)}</b></td><td data-l="name" class="tw">${esc(b.name)}${b.by_committee ? ' <span class="muted small">(desk)</span>' : ""}</td><td data-l="mob" class="mono">${esc(b.mobile)}</td>
     <td data-l="sess" class="tw small">${esc(sessLabel(ev, b.sessions))} · ${b.adults}A ${b.children}C</td><td data-l="a" class="r num">${b.adults}</td><td data-l="c" class="r num">${b.children}</td>
     <td data-l="amt" class="r num">${+b.amount > 0 ? inr(b.amount) : "Free"}${+b.late_fee ? `<div class="small muted">incl. late ${inr(b.late_fee)}</div>` : ""}</td>
     <td data-l="status"><span class="chip ${st.cls}">${esc(st.label)}</span>${b.upi_ref ? `<div class="small mono muted">UTR ${esc(b.upi_ref)}</div>` : ""}${b.paid_at && st.k === "paid" ? `<div class="small muted">${fdt(b.paid_at)}</div>` : ""}</td>
+    <td data-l="given">${(() => { const g = bookingGiven(b); return b.status === "cancelled" ? "—" : `<span class="chip ${g.cls}">🍽 ${g.label}</span>`; })()}</td>
     <td data-l="pass">${b.pass_type === "mobile" ? `<span class="small">📱 Mobile</span> <span class="small muted">${b.wa_sent_at ? "WA ✓ " : ""}${b.email_sent_at ? "Email ✓" : ""}${!b.wa_sent_at && !b.email_sent_at ? "Not sent" : ""}</span>` : `<span class="small">🖨️ Printed</span> <span class="small muted">${b.printed_at ? "Printed ✓" : "Not printed"}</span>`}</td>
     <td data-l="act"><div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-pass="${b.id}" type="button">Send / view</button>${st.k === "pending" || st.k === "upi" ? `<button class="btn sm primary" data-pay="${b.id}" type="button">Mark paid</button>` : ""}${st.k === "paid" ? `<button class="btn sm" data-unpay="${b.id}" type="button">Undo paid</button>` : ""}${st.k === "cancelled" ? `<button class="btn sm" data-restore="${b.id}" type="button">Restore</button>` : `<button class="btn sm danger" data-cancel="${b.id}" type="button">Cancel</button>`}</div></td>
   </tr>`; }).join("")}</tbody></table></div>`;
@@ -887,6 +932,7 @@ function wireServe(box, after) {
 }
 function renderCounter() {
   eventSelect($("#ctEvent"));
+  const lev = evById($("#ctEvent").value); $("#ctLive").innerHTML = lev ? liveMealsPanel(lev, 5) : "";
   const q = $("#ctQ").value.trim().toUpperCase().replace(/\s/g, ""), box = $("#ctBody"), evId = $("#ctEvent").value;
   if (!q) { box.innerHTML = ""; return; }
   const hits = S.bookings.filter(b => (!evId || b.event_id === evId) && (b.pass_no === q || q.startsWith(b.pass_no + "-") || b.flat === q || b.flat.replace("-", "") === q.replace("-", "") || (q.length >= 4 && b.pass_no.includes(q))));
@@ -907,6 +953,7 @@ async function handleScan(raw, auto) {
   const { data: j, error } = await sb.rpc("scan_pass", { p_token: t, p_auto: !!auto });
   scanBusy = false;
   if (error) { box.innerHTML = `<div class="result stop"><div class="big">Could not check</div><div class="small">${esc(errMsg(error))}</div></div>`; return; }
+  if (j.result === "given") reloadSoon();
   if (navigator.vibrate) navigator.vibrate(j.result === "given" || j.result === "valid" || j.result === "booking" ? 60 : [80, 60, 80]);
   if (j.result === "not_found") { box.innerHTML = `<div class="result stop"><div class="big">✕ Pass not found</div><div class="small">Read: <span class="mono">${esc(j.token)}</span>. Ask for the pass number and search below.</div></div>`; return; }
   const b = normBooking(Object.assign({}, j.booking, { booking_sessions: (j.sessions || []).map(s => ({ session_id: s.id })) }));

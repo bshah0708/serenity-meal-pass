@@ -146,7 +146,7 @@
           <div class="field" style="flex:2 1 220px"><label for="bkSearch">Search</label><div class="searchbox"><svg class="ic sm"><use href="#i-search"/></svg><input id="bkSearch" type="text" placeholder="Flat, name, mobile, pass no."></div></div>
           <div class="field"><label for="bkEvent">Event</label><select id="bkEvent"></select></div>
           <div class="field" style="flex:0 1 170px"><label for="bkStatus">Status</label><select id="bkStatus">
-            <option value="">All active</option><option value="pending">Payment pending</option><option value="upi">UPI to verify</option><option value="paid">Paid</option><option value="free">Free</option><option value="cancelled">Cancelled</option><option value="unprinted">Printed pass · not printed yet</option><option value="unsent">Mobile pass · not sent yet</option></select></div>
+            <option value="">All active</option><option value="pending">Payment pending</option><option value="upi">UPI to verify</option><option value="paid">Paid</option><option value="free">Free</option><option value="cancelled">Cancelled</option><option value="unprinted">Printed pass · not printed yet</option><option value="unsent">Mobile pass · not sent yet</option><option value="ungiven">Paid · meal not given yet</option></select></div>
           <div class="field" style="flex:0 1 120px"><label for="bkType">Pass type</label><select id="bkType"><option value="">Both</option><option value="physical">Printed</option><option value="mobile">Mobile</option></select></div>
           <div class="field" style="flex:0 1 90px"><label for="bkBlock">Block</label><select id="bkBlock"></select></div>
         </div>
@@ -158,6 +158,7 @@
 
     <section data-pane="counter" hidden>
       <div class="pane-head"><div><h2>Counter</h2><p>Point the camera at each person's QR and hand over the item.</p></div></div>
+      <div id="ctLive"></div>
       <div class="scancard">
         <div id="camBox" class="cam" hidden><video id="camVideo" playsinline muted></video><div class="reticle"></div>
           <button class="btn sm camstop" id="camStop" type="button">Stop camera</button></div>
