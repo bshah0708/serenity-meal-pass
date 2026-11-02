@@ -84,10 +84,19 @@ Both also run automatically whenever the code changes.
 
 ## 7. Pass emails (optional)
 
-1. Sign up at **resend.com**, verify a domain you own (or use their test sender, which can only email your own address).
-2. GitHub secrets: **`RESEND_API_KEY`**, **`PASS_FROM_EMAIL`** (e.g. `Serenity Space <passes@yourdomain.in>`). Re-run **Deploy Supabase**.
+**Option A – Gmail (easiest, no domain needed, about 500 emails a day)**
+1. Use a society Gmail account (e.g. `serenityspace.passes@gmail.com`). Turn on **2-Step Verification**.
+2. Google Account → Security → **App passwords** → create one named "Meal Pass". Copy the 16-letter password.
+3. Supabase dashboard → **Edge Functions → Secrets** → add `SMTP_USER` = the Gmail address and `SMTP_PASS` = the app password.
+   Delete `RESEND_API_KEY` there if it holds an old or invalid key (Gmail is used whenever `SMTP_USER` and `SMTP_PASS` are set).
 
-Without this, everything else works; committee members send passes on WhatsApp.
+**Option B – Resend** (only if the society owns a domain)
+1. resend.com → verify your domain → create an API key.
+2. Secrets `RESEND_API_KEY` and `PASS_FROM_EMAIL` (e.g. `Serenity Space <passes@yourdomain.in>`).
+   Without a verified domain Resend can only email the account owner.
+
+If something is wrong, the committee screen now shows the exact reason (wrong key, Gmail login refused, domain not verified).
+Without email, everything else works; committee members send passes on WhatsApp.
 
 ## 8. First login and committee
 

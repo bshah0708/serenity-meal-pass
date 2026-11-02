@@ -1,7 +1,7 @@
 /* Serenity Space Meal Pass — service worker.
    Makes the site installable and opens fast. Pages and app code are fetched fresh when online
    (cached copy used only when offline); libraries and icons are cached. Supabase data is never cached. */
-const VERSION = "mp-v12";
+const VERSION = "mp-v13";
 const SHELL = ["./", "index.html", "pass.html", "styles.css", "app.css", "app.js", "config.js", "manifest.webmanifest",
   "assets/tree.png", "assets/logo.png", "assets/icon-192.png", "assets/icon-512.png", "assets/apple-touch-icon.png",
   "vendor/supabase.js", "vendor/qrcode.js", "vendor/jsQR.min.js"];

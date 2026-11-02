@@ -220,7 +220,8 @@ $("#phoneForm").addEventListener("submit", async e => {
   const btn = $("#lgSend"); btn.disabled = true; btn.textContent = "Sending…";
   const { error } = await sb.auth.signInWithOtp({ phone: "+91" + n });
   btn.disabled = false; btn.textContent = "Send code";
-  if (error) { err.textContent = /rate|security purposes/i.test(error.message) ? "Please wait a minute before asking for another code." : errMsg(error); return; }
+  if (error) { err.textContent = /rate|security purposes/i.test(error.message) ? "Please wait a minute before asking for another code."
+    : /sms|provider|twilio|hook/i.test(error.message) ? "SMS code could not be sent — the society's SMS service is not active yet. Please contact the committee (" + ((S.settings.desk || {}).contact || "committee desk") + ")." : errMsg(error); return; }
   otpPhone = n; $("#lgTo").textContent = "+91 " + n.slice(0, 5) + " " + n.slice(5);
   $("#phoneForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").value = ""; $("#lgOtp").focus();
   startResendTimer();
