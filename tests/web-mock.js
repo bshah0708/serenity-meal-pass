@@ -16,7 +16,7 @@
     staff_requests: [{ user_id: "u-akash", note: "C block rep", status: "pending", requested_at: new Date().toISOString() }],
     app_settings: [{ key: "desk", value: { place: "Society office, 7–9 pm", contact: "97242 12198" } }, { key: "upi", value: { enabled: true, id: "serenity@icici", name: "Serenity Space CHS" } }],
     events: [
-      { id: ev1, code: "DIN26", name_gu: "સોસાયટી રાત્રિ ભોજન", name_en: "Diwali Community Dinner", venue: "Podium", notes: "Gujarati thali", kind: "multi", capacity: 300, open_date: d(-5), close_date: d(1), published: true, price_mode: "paid", cost: 0, adult_rate: 250, child_rate: 150, child_note: "below 10 yrs", pkg_adult: 450, pkg_child: 0, late_from: null, late_extra: 0, created_at: d(-6) },
+      { id: ev1, cancel_paid: "until", cancel_until: d(0), unpaid_cancel_days: 1, code: "DIN26", name_gu: "સોસાયટી રાત્રિ ભોજન", name_en: "Diwali Community Dinner", venue: "Podium", notes: "Gujarati thali", kind: "multi", capacity: 300, open_date: d(-5), close_date: d(1), published: true, price_mode: "paid", cost: 0, adult_rate: 250, child_rate: 150, child_note: "below 10 yrs", pkg_adult: 450, pkg_child: 0, late_from: null, late_extra: 0, created_at: d(-6) },
       { id: ev2, code: "RD27", name_gu: "પ્રજાસત્તાક દિવસ નાસ્તો", name_en: "Republic Day Snacks", venue: "Clubhouse lawn", notes: null, kind: "single", capacity: 0, open_date: d(-1), close_date: d(40), published: true, price_mode: "discount", cost: 80, adult_rate: 50, child_rate: 30, child_note: "below 10 yrs", pkg_adult: 0, pkg_child: 0, late_from: d(20), late_extra: 10, created_at: d(-2) },
     ],
     event_sessions: [
@@ -92,7 +92,18 @@
       T.bookings.push(b); a.p_sessions.forEach(s => T.booking_sessions.push({ booking_id: b.id, session_id: s })); return b;
     },
     submit_upi_ref(a) { B(a.p_booking).upi_ref = a.p_ref; },
-    cancel_booking(a) { B(a.p_booking).status = "cancelled"; },
+    cancel_booking(a) {
+      const b = B(a.p_booking), e = T.events.find(x => x.id === b.event_id), nm = (T.profiles.find(x => x.id === me.id) || {}).name;
+      if (!staff() && b.status === "paid" && +b.amount > 0) {
+        if (e.cancel_paid !== "until") throw new Error("Paid passes for this event cannot be cancelled");
+        if (new Date().toISOString().slice(0, 10) > e.cancel_until) throw new Error("Cancellation closed");
+      }
+      const amt = b.status === "paid" ? +(b.paid_amount != null ? b.paid_amount : b.amount) : 0;
+      Object.assign(b, { status: "cancelled", cancelled_at: new Date().toISOString(), cancelled_by_name: nm, cancel_reason: staff() && b.user_id !== me.id ? "committee" : "resident",
+        refund_status: amt > 0 ? "due" : null, refund_amount: amt > 0 ? amt : null });
+    },
+    record_refund(a) { if (!staff()) throw new Error("Committee only"); Object.assign(B(a.p_booking), { refund_status: a.p_refunded ? "refunded" : "not_refunded", refund_ref: a.p_ref, refunded_at: new Date().toISOString(), refunded_by_name: (T.profiles.find(x => x.id === me.id) || {}).name }); },
+    auto_cancel_unpaid() { return 0; },
     mark_paid(a) { Object.assign(B(a.p_booking), { status: "paid", pay_mode: a.p_mode, paid_amount: a.p_amount, paid_at: new Date().toISOString() }); },
     record_payment(a) {
       const nm = id => { const p = T.profiles.find(x => x.id === id); return p ? p.name : null; };

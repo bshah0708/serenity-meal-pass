@@ -160,6 +160,42 @@ await as(akash, "select undo_paid($1)", [p1.id]);
 r = await as(akash, "select status, collected_by_name, paid_by_name from bookings where id=$1", [p1.id]);
 assert.equal(r.rows[0].status, "pending"); assert.equal(r.rows[0].collected_by_name, null); ok("undo paid clears who collected / marked");
 
+// --- cancellation rules ---
+r = await as(akash, `insert into events(code,name_en,kind,capacity,open_date,close_date,published,price_mode,adult_rate,child_rate,cancel_paid,cancel_until,unpaid_cancel_days)
+  values ('CX26','Cancel test','single',0,current_date - 3,current_date + 1,true,'paid',100,50,'until',current_date + 1,3) returning id`);
+const evC = r.rows[0].id;
+const sC = (await as(akash, "insert into event_sessions(event_id,label,date,meal,sort) values ($1,'Day',current_date+2,'Dinner',1) returning id", [evC])).rows[0].id;
+const nc = async () => (await as(asha, "select * from create_booking($1,$2,1,0,'mobile','Asha Patel','9800000001','asha@example.com')", [evC, [sC]])).rows[0];
+const q1 = await nc(), q2 = await nc(), q3 = await nc(), q4 = await nc(), q5 = await nc(), q6 = await nc();
+await as(asha, "select cancel_booking($1)", [q1.id]);
+r = await as(asha, "select status, cancel_reason, refund_status from bookings where id=$1", [q1.id]);
+assert.deepEqual(r.rows[0], { status: "cancelled", cancel_reason: "resident", refund_status: null }); ok("unpaid booking: resident can always cancel, no refund");
+await as(akash, "select record_payment($1,'cash',100)", [q2.id]);
+await as(asha, "select cancel_booking($1)", [q2.id]);
+r = await as(asha, "select refund_status, refund_amount::int a from bookings where id=$1", [q2.id]);
+assert.equal(r.rows[0].refund_status, "due"); assert.equal(r.rows[0].a, 100); ok("paid booking cancelled before the last date → refund due ₹100");
+await as(akash, "select record_payment($1,'cash',100)", [q3.id]);
+await db.exec("reset role"); await db.query("update events set cancel_until = current_date - 1 where id=$1", [evC]);
+await fails(asha, "select cancel_booking($1)", [q3.id], /Cancellation closed/); ok("after the last cancellation date a paid booking cannot be cancelled");
+await db.query("update events set cancel_paid = 'no' where id=$1", [evC]);
+await fails(asha, "select cancel_booking($1)", [q3.id], /cannot be cancelled/); ok("event set to 'no cancellation' blocks paid cancellations");
+await as(akash, "select cancel_booking($1)", [q3.id]);
+r = await as(akash, "select cancel_reason, refund_status, cancelled_by_name from bookings where id=$1", [q3.id]);
+assert.equal(r.rows[0].cancel_reason, "committee"); assert.equal(r.rows[0].refund_status, "due"); assert.equal(r.rows[0].cancelled_by_name, "Akash"); ok("committee can still cancel; records who did it");
+await fails(asha, "select record_refund($1,true)", [q3.id], /Committee only/); ok("only committee records refunds");
+await as(akash, "select record_refund($1,true,'Cash returned')", [q3.id]);
+r = await as(asha, "select refund_status, refunded_by_name from bookings where id=$1", [q3.id]);
+assert.equal(r.rows[0].refund_status, "refunded"); assert.equal(r.rows[0].refunded_by_name, "Akash"); ok("refund recorded with who returned the money");
+await fails(akash, "select restore_booking($1)", [q3.id], /already refunded/); ok("a refunded booking cannot be restored");
+await as(asha, "select submit_upi_ref($1,'412300000000')", [q5.id]);
+await db.exec("reset role"); await db.query("update bookings set created_at = now() - interval '5 days' where id = any($1)", [[q4.id, q5.id]]);
+r = await as(asha, "select auto_cancel_unpaid() n"); assert.equal(r.rows[0].n, 1);
+r = await as(akash, "select id, status, cancel_reason from bookings where id = any($1)", [[q4.id, q5.id, q6.id]]);
+const st = Object.fromEntries(r.rows.map(x => [x.id, x.status + "/" + (x.cancel_reason || "")]));
+assert.equal(st[q4.id], "cancelled/auto_unpaid"); assert.equal(st[q5.id], "pending/"); assert.equal(st[q6.id], "pending/");
+ok("auto-cancel: unpaid booking past the deadline cancelled; UPI waiting for check and late bookings kept");
+r = await as(asha, "select auto_cancel_unpaid() n"); assert.equal(r.rows[0].n, 0); ok("auto-cancel is safe to run again");
+
 // --- revoke ---
 await as(biren, "select revoke_committee($1)", [akash]);
 r = await as(akash, "select count(*)::int n from bookings"); assert.equal(r.rows[0].n, 0); ok("revoked member loses access to others' bookings");

@@ -84,6 +84,49 @@ function bStatus(b) {
   return { k: "pending", label: "Payment pending", cls: "warn" };
 }
 const active = b => b.status !== "cancelled";
+/* ── cancellation rules (mirror of SQL cancel_booking / auto_cancel_unpaid) ── */
+const addDays = (iso, n) => { const x = new Date(iso + "T00:00:00"); x.setDate(x.getDate() + n); return x.getFullYear() + "-" + pad(x.getMonth() + 1) + "-" + pad(x.getDate()); };
+const unpaidCutoff = ev => ev && ev.unpaid_cancel_days != null && (ev.sessions || []).length ? addDays(ev.sessions[0].date, -ev.unpaid_cancel_days) : null;
+const istDate = ts => { try { return new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); } catch (e) { return String(ts).slice(0, 10); } };
+function cancelLines(ev, b) {
+  if (!ev) return [];
+  const L = [], free = ev.price_mode === "free" || (b && !(+b.amount > 0)), cut = unpaidCutoff(ev);
+  if (free) { L.push({ k: "ok", gu: "ભોજન લેતા પહેલાં ગમે ત્યારે રદ કરી શકાય.", en: "Free passes can be cancelled any time before the meal is collected." }); return L; }
+  L.push({ k: "ok", gu: "ચુકવણી બાકી હોય ત્યાં સુધી ગમે ત્યારે રદ કરી શકાય.", en: "Unpaid bookings can be cancelled any time." });
+  if (cut && !(b && istDate(b.created_at) >= cut))
+    L.push({ k: "warn", gu: `${fd(addDays(cut, -1))} સુધીમાં ચુકવણી કરો, નહીંતર ${fd(cut)}ના રોજ બુકિંગ આપોઆપ રદ થશે.`, en: `Pay by ${fd(addDays(cut, -1))}. Unpaid bookings are cancelled automatically on ${fd(cut)}${ev.unpaid_cancel_days ? ` (${ev.unpaid_cancel_days} day${ev.unpaid_cancel_days === 1 ? "" : "s"} before the event)` : ""}.` });
+  if (ev.cancel_paid === "until" && ev.cancel_until)
+    L.push({ k: "info", gu: `ચુકવેલ પાસ ${fd(ev.cancel_until)} સુધી રદ કરી શકાય; રકમ કમિટી પરત કરશે.`, en: `Paid passes can be cancelled until ${fd(ev.cancel_until)}; the committee refunds the amount.` });
+  else L.push({ k: "bad", gu: "ચુકવણી થયા પછી પાસ રદ નહીં થાય.", en: "Paid passes cannot be cancelled." });
+  return L;
+}
+function policyBox(ev, b, title) {
+  const L = cancelLines(ev, b); if (!L.length) return "";
+  return `<div class="policy"><b><span class="gu">રદ કરવાના નિયમો</span> · ${title || "Cancellation"}</b><ul>${L.map(l => `<li class="${l.k}"><span class="gu">${esc(l.gu)}</span> ${esc(l.en)}</li>`).join("")}</ul></div>`;
+}
+/* can the logged-in resident cancel this booking now? → {ok, why} */
+function canSelfCancel(b) {
+  const ev = evById(b.event_id) || {};
+  if (b.status === "cancelled") return { ok: false };
+  if (Object.keys(S.checkins[b.id] || {}).length) return { ok: false, why: "Meal already collected" };
+  if (b.status === "pending" || !(+b.amount > 0)) return { ok: true };
+  if (ev.cancel_paid !== "until" || !ev.cancel_until) return { ok: false, why: "Paid passes cannot be cancelled" };
+  if (istDate(Date.now()) > ev.cancel_until) return { ok: false, why: "Cancellation closed on " + fd(ev.cancel_until) };
+  return { ok: true, refund: +(b.paid_amount != null ? b.paid_amount : b.amount) };
+}
+const CANCEL_WHY = { resident: "by the resident", committee: "by the committee", auto_unpaid: "automatically — not paid in time" };
+function cancelInfo(b, forResident) {
+  if (b.status !== "cancelled") return "";
+  const who = b.cancel_reason === "auto_unpaid" ? CANCEL_WHY.auto_unpaid : b.cancel_reason === "resident" ? (forResident ? "by you" : "by the resident") : b.cancel_reason === "committee" ? "by the committee" + (b.cancelled_by_name ? " (" + b.cancelled_by_name + ")" : "") : "";
+  return `Cancelled ${who}${b.cancelled_at ? " on " + fdt(b.cancelled_at) : ""}`;
+}
+function refundInfo(b) {
+  if (!b.refund_status) return null;
+  const a = inr(b.refund_amount || 0);
+  if (b.refund_status === "due") return { cls: "warn", label: "Refund due " + a, line: `Refund of ${a} due from the committee` };
+  if (b.refund_status === "refunded") return { cls: "ok", label: "Refunded " + a, line: `${a} refunded${b.refunded_by_name ? " by " + b.refunded_by_name : ""}${b.refunded_at ? " on " + fdt(b.refunded_at) : ""}${b.refund_ref ? " · " + b.refund_ref : ""}` };
+  return { cls: "", label: "No refund", line: `No refund given${b.refunded_by_name ? " (recorded by " + b.refunded_by_name + ")" : ""}${b.refund_ref ? " · " + b.refund_ref : ""}` };
+}
 const MODE = { cash: "Cash", upi: "UPI", other: "Other", waived: "Waived" };
 /* one line: who handled the money — "Cash · received by Biren · marked by Akash" */
 function payWho(b, short) {
@@ -136,6 +179,7 @@ async function loadData() {
   S.events = evs.map(normEvent);
   const set = await sb.from("app_settings").select("key,value");
   S.settings = Object.fromEntries((set.data || []).map(r => [r.key, r.value]));
+  try { await sb.rpc("auto_cancel_unpaid"); } catch (e) {}
   S.bookings = (await fetchAll(() => sb.from("bookings").select("*, booking_sessions(session_id)").order("created_at", { ascending: false }))).map(normBooking);
   const ck = await fetchAll(() => sb.from("checkins").select("*"));
   const m = {}; ck.forEach(c => { ((m[c.booking_id] = m[c.booking_id] || {})[c.session_id] = m[c.booking_id][c.session_id] || {})[c.person_no] = { at: c.given_at }; });
@@ -271,6 +315,7 @@ function eventCard(ev) {
     <div class="meta">${[...new Set(ss.map(s => s.meal))].map(m => `<span class="tag">${esc(MEAL_GU[m] || m)} · ${esc(m)}</span>`).join("")}${ev.venue ? `<span class="tag"><svg class="ic sm"><use href="#i-pin"/></svg>${esc(ev.venue)}</span>` : ""}${left != null ? `<span class="tag">${left} places left</span>` : ""}</div>
     ${ev.notes ? `<div class="small muted">${esc(ev.notes)}</div>` : ""}
     <div class="price">${price}</div>${late}
+    ${ev.price_mode === "free" ? "" : `<div class="policy mini">${cancelLines(ev).map(l => `<span class="${l.k}">${esc(l.en)}</span>`).join("")}</div>`}
     ${tilePasses(ev)}
     ${w.k === "open" && left !== 0 ? `<button class="btn primary" data-book="${ev.id}" type="button"><svg class="ic sm"><use href="#i-ticket"/></svg>${mineFor(ev).length ? "વધુ પાસ બુક કરો · Book more passes" : "પાસ બુક કરો · Book pass"}</button>` : (left === 0 ? `<div class="chip bad">Fully booked</div>` : "")}
   </article>`;
@@ -350,6 +395,7 @@ function bookingForm(ev, asAdmin, preset) {
       <div class="seg"><label><input type="radio" name="fType" value="mobile" checked> <span><span class="gu">મોબાઇલ પાસ</span> · Mobile pass <small class="muted" style="display:block">QR on WhatsApp &amp; email, show on phone</small></span></label>
       <label><input type="radio" name="fType" value="physical"> <span><span class="gu">પ્રિન્ટેડ પાસ</span> · Printed pass <small class="muted" style="display:block">Collect from the committee desk</small></span></label></div></div>
     <div class="sumbox" id="sumBox"></div>
+    ${policyBox(ev, null)}
     <div class="err" id="fErr"></div>
     <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="fCancel">Cancel</button><button class="btn primary" type="button" id="fGo">${asAdmin ? "Create booking" : "બુક કરો · Confirm booking"}</button></div>`);
   let a = 1, c = 0;
@@ -471,6 +517,7 @@ function confirmSheet(b, asAdmin) {
     ${passCard(b)}
     ${+b.amount > 0 ? `<div class="notice small"><span class="gu">${inr(b.amount)} કમિટી ડેસ્ક પર ચૂકવો. ${mobile ? "પેમેન્ટ પછી પાસ માન્ય થશે." : "પેમેન્ટ પછી પ્રિન્ટેડ પાસ મળશે."}</span><br>Pay ${inr(b.amount)} at the committee desk${(S.settings.upi || {}).enabled ? " or by UPI below" : ""}. ${mobile ? "Your mobile pass becomes valid once payment is confirmed." : "Your printed pass is handed over after payment."}${desk.place ? "<br><b>Desk:</b> " + esc(desk.place) : ""}${desk.contact ? "<br><b>Contact:</b> " + esc(desk.contact) : ""}</div>` : `<div class="notice small">This is a free pass.</div>`}
     ${upiBlock(b)}
+    ${policyBox(evById(b.event_id), b)}
     <div class="row"><a class="btn primary" href="${esc(asAdmin ? waLink(b) : waLink(b, true))}" target="_blank" rel="noopener">${asAdmin ? "Send on WhatsApp to " + esc(b.mobile) : "Save passes to my WhatsApp"}</a>${asAdmin && b.email ? `<button class="btn" type="button" id="cMail">Email passes</button>` : ""}</div>
     <div class="err" id="cErr"></div>
     <div class="row" style="justify-content:flex-end">${asAdmin ? `<button class="btn" type="button" id="cAnother">Book another</button>` : ""}<button class="btn x2" type="button">Done</button></div>`);
@@ -482,7 +529,9 @@ function confirmSheet(b, asAdmin) {
 }
 function paySection(b) {
   const st = bStatus(b), desk = S.settings.desk || {};
-  if (b.status === "cancelled") return `<div class="paysec"><div class="payrow"><span>Status</span><span class="chip bad">Cancelled</span></div></div>`;
+  if (b.status === "cancelled") { const rf = refundInfo(b);
+    return `<div class="paysec"><div class="payrow"><span>Status</span><span class="chip bad">Cancelled</span></div>
+      <div class="small muted">${esc(cancelInfo(b, true))}.</div>${rf ? `<div class="payrow"><span>Refund</span><span class="chip ${rf.cls}">${esc(rf.label)}</span></div><div class="small muted">${esc(rf.line)}.</div>` : ""}</div>`; }
   return `<div class="paysec">
     <div class="payrow"><span>Amount</span><b class="num">${+b.amount > 0 ? inr(b.amount) : "Free"}</b></div>
     <div class="payrow"><span>Status</span><span class="chip ${st.cls}">${esc(st.label)}</span></div>
@@ -519,8 +568,10 @@ function myBookingCard(b, i, n, dfltOpen) {
   const pay = collapsible("py:" + b.id, isOpen("py:" + b.id, due),
     `<span class="subh"><span class="rs">₹</span><span><span class="gu">ચુકવણી</span> · Payment <small>${cancelled ? "Cancelled" : due ? "Due " + inr(b.amount) : +b.amount > 0 ? "Paid " + inr(b.amount) + (b.pay_mode ? " · " + b.pay_mode.toUpperCase() : "") : "Free"}</small></span></span>`,
     paySection(b), "sub pay");
+  const cc = canSelfCancel(b);
   const body = `<div class="bkbody">${passes}${pay}
-    ${!cancelled ? `<div class="row mybk-act"><a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>${b.status === "pending" ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}">Cancel booking</button>` : ""}<span class="small muted" style="margin-left:auto">Booked ${fd(b.created_at)}</span></div>` : ""}</div>`;
+    ${!cancelled ? policyBox(ev, b, "for this booking") : ""}
+    ${!cancelled ? `<div class="row mybk-act"><a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>${cc.ok ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}" data-refund="${cc.refund || 0}">${cc.refund ? "Cancel · refund " + inr(cc.refund) : "Cancel booking"}</button>` : cc.why ? `<span class="small muted">${esc(cc.why)}</span>` : ""}<span class="small muted" style="margin-left:auto">Booked ${fd(b.created_at)}</span></div>` : ""}</div>`;
   return collapsible("bk:" + b.id, isOpen("bk:" + b.id, dfltOpen), head, body, "mybk" + (cancelled ? " is-cancelled" : "") + (due ? " is-due" : ""));
 }
 /* resident: pick passes → one QR for the counter */
@@ -600,7 +651,7 @@ function renderMine() {
   wireUtr(box);
   $$("[data-bookmore]", box).forEach(btn => btn.onclick = () => bookingForm(evById(btn.dataset.bookmore), false));
   $$("[data-together]", box).forEach(btn => btn.onclick = () => groupSheet(evById(btn.dataset.together)));
-  $$("[data-mycancel]", box).forEach(btn => arm(btn, async () => { const { error } = await sb.rpc("cancel_booking", { p_booking: btn.dataset.mycancel }); if (error) toast(errMsg(error)); else { toast("Booking cancelled"); reloadSoon(); } }, "Confirm cancel"));
+  $$("[data-mycancel]", box).forEach(btn => arm(btn, async () => { const { error } = await sb.rpc("cancel_booking", { p_booking: btn.dataset.mycancel }); if (error) toast(errMsg(error)); else { toast(+btn.dataset.refund ? "Booking cancelled · the committee will refund " + inr(+btn.dataset.refund) : "Booking cancelled"); reloadSoon(); } }, +btn.dataset.refund ? "Tap again: cancel & get refund" : "Tap again to cancel"));
 }
 $("#myList").addEventListener("click", e => { const t = e.target.closest("[data-tg]"); if (t) toggleBox(t); });
 function setAllMine(open) {
@@ -670,6 +721,7 @@ function passSheet(b) {
     ${passCard(b)}
     <div class="row small">${persons(b).map(x => `<button class="btn sm" type="button" data-img="${x.n}">Image · ${x.type} ${x.n}</button>`).join("")}</div>
     <div class="small muted">Mobile <span class="mono">${esc(b.mobile)}</span> · Email ${esc(b.email || "—")}${b.upi_ref ? ` · UTR <span class="mono">${esc(b.upi_ref)}</span>` : ""}</div>
+    ${b.status === "cancelled" ? `<div class="notice small"><b>${esc(cancelInfo(b))}.</b>${refundInfo(b) ? "<br>" + esc(refundInfo(b).line) + "." : ""}</div>` : ""}
     ${b.status === "paid" && +b.amount > 0 ? `<div class="panel"><h3 style="margin-bottom:8px">Payment</h3><dl class="kv">
       <dt>Amount</dt><dd class="num">${inr(b.paid_amount != null ? b.paid_amount : b.amount)} · ${esc(MODE[b.pay_mode] || b.pay_mode || "")}</dd>
       ${b.pay_mode === "cash" ? `<dt>Cash received by</dt><dd><b>${esc(b.collected_by_name || "—")}</b></dd>` : ""}
@@ -699,9 +751,10 @@ function eventSelect(selEl) {
 }
 function evStats(ev) {
   const bs = S.bookings.filter(b => b.event_id === ev.id), act = bs.filter(active);
-  const r = { passes: act.length, adults: 0, children: 0, billed: 0, collected: 0, pending: 0, upiVerify: 0, cost: 0, cancelled: bs.length - act.length, cash: 0, upi: 0, other: 0, printed: 0, byCollector: {}, bySess: {}, byBlock: {} };
+  const r = { passes: act.length, adults: 0, children: 0, billed: 0, collected: 0, pending: 0, upiVerify: 0, cost: 0, cancelled: bs.length - act.length, cash: 0, upi: 0, other: 0, printed: 0, byCollector: {}, refundDue: 0, refundDueN: 0, refunded: 0, autoCancelled: 0, bySess: {}, byBlock: {} };
   (ev.sessions || []).forEach(s => r.bySess[s.id] = { a: 0, c: 0, served: 0 });
   BLOCKS.forEach(b => r.byBlock[b] = { passes: 0, persons: 0, amount: 0, pending: 0 });
+  bs.filter(b => b.status === "cancelled").forEach(b => { if (b.refund_status === "due") { r.refundDue += +b.refund_amount || 0; r.refundDueN++; } if (b.refund_status === "refunded") r.refunded += +b.refund_amount || 0; if (b.cancel_reason === "auto_unpaid") r.autoCancelled++; });
   act.forEach(b => {
     const st = bStatus(b);
     r.adults += b.adults; r.children += b.children; r.billed += +b.amount; r.cost += +b.cost || 0;
@@ -845,6 +898,14 @@ function eventForm(ev, tpl) {
       <div class="field" data-show="paid discount"><label for="pLate">Rate increases from (optional)</label><input id="pLate" type="date" value="${esc(e.late_from || "")}"></div>
       <div class="field" data-show="paid discount"><label for="pLateX">Increase ₹ per person / session</label><input id="pLateX" type="number" min="0" value="${esc(v("late_extra"))}"></div>
     </div>
+    <div class="panel" style="padding:12px" data-show="paid discount"><span class="lab">Cancellation <span class="gu">રદ કરવાના નિયમો</span></span>
+      <p class="small muted" style="margin:2px 0 8px">Residents can always cancel an <b>unpaid</b> booking. Choose what happens after payment.</p>
+      <div class="seg"><label><input type="radio" name="cxP" value="no"${e.cancel_paid !== "until" ? " checked" : ""}> Paid passes cannot be cancelled</label><label><input type="radio" name="cxP" value="until"${e.cancel_paid === "until" ? " checked" : ""}> Allowed until a date (refund)</label></div>
+      <div class="grid2" style="margin-top:8px">
+        <div class="field" id="cxUntilF"><label for="cxUntil">Last date to cancel a paid pass</label><input id="cxUntil" type="date" value="${esc(e.cancel_until || "")}"></div>
+        <div class="field"><label for="cxDays">Auto-cancel unpaid bookings … days before the event (blank = never)</label><input id="cxDays" type="number" min="0" max="60" inputmode="numeric" value="${e.unpaid_cancel_days == null ? "" : esc(e.unpaid_cancel_days)}" placeholder="e.g. 2"></div>
+      </div>
+      <div class="small" id="cxPrev"></div></div>
     <div class="field"><label for="eNotes">Note for residents (menu, timing)</label><textarea id="eNotes">${esc(e.notes || "")}</textarea></div>
     <label class="row"><input type="checkbox" id="ePub"${e.published ? " checked" : ""}> Publish to residents</label>
     <div class="err" id="eErr"></div>
@@ -867,7 +928,13 @@ function eventForm(ev, tpl) {
   $("#gGo", o).onclick = () => { const st = $("#gStart", o).value, n = +$("#gN", o).value, m = $("#gMeal", o).value; if (!st || !(n > 0)) { toast("Pick the first day and number of days."); return; }
     readSess(); e.sessions = e.sessions.filter(s => s.date || s.label); const d = new Date(st + "T00:00:00");
     for (let i = 0; i < n; i++) { const x = new Date(d); x.setDate(d.getDate() + i); e.sessions.push({ _k: rid(6), label: "Day " + (i + 1), date: x.getFullYear() + "-" + pad(x.getMonth() + 1) + "-" + pad(x.getDate()), meal: m }); } drawSess(); };
-  drawSess();
+  const cxRead = () => ({ cancel_paid: $("input[name=cxP]:checked", o).value, cancel_until: $("input[name=cxP]:checked", o).value === "until" ? ($("#cxUntil", o).value || null) : null,
+    unpaid_cancel_days: $("#cxDays", o).value === "" ? null : Math.max(0, Math.min(60, Math.floor(+$("#cxDays", o).value || 0))) });
+  const cxDraw = () => { readSess(); const c = cxRead(); $("#cxUntilF", o).hidden = c.cancel_paid !== "until";
+    const fake = Object.assign({}, c, { price_mode: pm(), sessions: e.sessions.filter(s => s.date).sort((a, z) => a.date.localeCompare(z.date)) });
+    $("#cxPrev", o).innerHTML = `<div class="muted" style="margin-bottom:4px">Residents will see:</div>` + cancelLines(fake).map(l => `<div class="policy-l ${l.k}">${esc(l.en)}</div>`).join(""); };
+  $$("input[name=cxP]", o).forEach(r => r.onchange = cxDraw); ["#cxUntil", "#cxDays"].forEach(id => $(id, o).oninput = cxDraw); o.addEventListener("change", e2 => { if (e2.target.closest(".sessed")) cxDraw(); });
+  drawSess(); cxDraw();
   $("#eSave", o).onclick = async () => {
     readSess(); const err = $("#eErr", o); err.textContent = "";
     const m = pm(), k = kind(), num = id => +$(id, o).value || 0;
@@ -877,6 +944,7 @@ function eventForm(ev, tpl) {
       adult_rate: m === "free" ? 0 : num("#pAdult"), child_rate: m === "free" ? 0 : num("#pChild"), child_note: $("#pChildNote", o).value.trim() || null,
       pkg_adult: k === "multi" && m !== "free" ? num("#pPkA") : 0, pkg_child: k === "multi" && m !== "free" ? num("#pPkC") : 0,
       late_from: m === "free" ? null : ($("#pLate", o).value || null), late_extra: m === "free" ? 0 : num("#pLateX"), updated_at: new Date().toISOString() };
+    Object.assign(row, m === "free" ? { cancel_paid: "no", cancel_until: null, unpaid_cancel_days: null } : cxRead());
     if (!row.name_gu && !row.name_en) return err.textContent = "Give the event a name.";
     if (!row.code) row.code = ((row.name_en || "SS").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase() || "SS") + String(new Date().getFullYear()).slice(2);
     if (!/^[A-Z0-9]{2,8}$/.test(row.code)) return err.textContent = "Pass code prefix: 2–8 letters or digits.";
@@ -885,6 +953,8 @@ function eventForm(ev, tpl) {
     if (row.close_date < row.open_date) return err.textContent = "Close date must be after the open date.";
     if (m !== "free" && !(row.adult_rate > 0)) return err.textContent = "Enter the adult rate.";
     if (m === "discount" && !(row.cost > row.adult_rate)) return err.textContent = "For a discounted event, actual cost should be more than the adult rate.";
+    if (row.cancel_paid === "until" && !row.cancel_until) return err.textContent = "Set the last date to cancel a paid pass.";
+    if (row.cancel_until && e.sessions.length && row.cancel_until > e.sessions.map(s => s.date).sort()[0]) return err.textContent = "The last cancellation date should be on or before the first session.";
     if (row.late_from && (row.late_from < row.open_date || row.late_from > row.close_date)) return err.textContent = "The rate-increase date should fall inside the booking window.";
     const btn = $("#eSave", o); btn.disabled = true; btn.textContent = "Saving…";
     let id = ev && ev.id;
@@ -913,6 +983,8 @@ function filteredBookings() {
     if (pt && b.pass_type !== pt) return false;
     if (st === "unprinted") { if (s === "cancelled" || b.pass_type === "mobile" || b.printed_at) return false; }
     else if (st === "ungiven") { if (s !== "paid" && s !== "free") return false; const g = bookingGiven(b); if (g.g >= g.t) return false; }
+    else if (st === "refund") { if (b.refund_status !== "due") return false; }
+    else if (st === "auto") { if (b.cancel_reason !== "auto_unpaid") return false; }
     else if (st === "unsent") { if (s === "cancelled" || b.pass_type !== "mobile" || b.email_sent_at || b.wa_sent_at) return false; }
     else if (st) { if (s !== st) return false; } else if (s === "cancelled") return false;
     if (blk && b.block !== blk) return false;
@@ -934,10 +1006,10 @@ function renderBookings() {
     <td data-l="pno" class="mono">${esc(b.pass_no)}</td><td data-l="flat"><b>${esc(b.flat)}</b></td><td data-l="name" class="tw">${esc(b.name)}${b.by_committee ? ' <span class="muted small">(desk)</span>' : ""}</td><td data-l="mob" class="mono">${esc(b.mobile)}</td>
     <td data-l="sess" class="tw small">${esc(sessLabel(ev, b.sessions))} · ${b.adults}A ${b.children}C</td><td data-l="a" class="r num">${b.adults}</td><td data-l="c" class="r num">${b.children}</td>
     <td data-l="amt" class="r num">${+b.amount > 0 ? inr(b.amount) : "Free"}${+b.late_fee ? `<div class="small muted">incl. late ${inr(b.late_fee)}</div>` : ""}</td>
-    <td data-l="status"><span class="chip ${st.cls}">${esc(st.label)}</span>${b.upi_ref ? `<div class="small mono muted">UTR ${esc(b.upi_ref)}</div>` : ""}${b.paid_at && st.k === "paid" ? `<div class="small muted">${fdt(b.paid_at)}</div>${payWho(b) ? `<div class="small who-l">${esc(payWho(b))}</div>` : ""}` : ""}</td>
+    <td data-l="status"><span class="chip ${st.cls}">${esc(st.label)}</span>${b.upi_ref ? `<div class="small mono muted">UTR ${esc(b.upi_ref)}</div>` : ""}${b.paid_at && st.k === "paid" ? `<div class="small muted">${fdt(b.paid_at)}</div>${payWho(b) ? `<div class="small who-l">${esc(payWho(b))}</div>` : ""}` : ""}${st.k === "cancelled" ? `<div class="small who-l">${esc(cancelInfo(b))}</div>${refundInfo(b) ? `<span class="chip ${refundInfo(b).cls}">${esc(refundInfo(b).label)}</span>${b.refund_status !== "due" ? `<div class="small who-l">${esc(refundInfo(b).line)}</div>` : ""}` : ""}` : ""}</td>
     <td data-l="given">${(() => { const g = bookingGiven(b); return b.status === "cancelled" ? "—" : `<span class="chip ${g.cls}">🍽 ${g.label}</span>`; })()}</td>
     <td data-l="pass">${b.pass_type === "mobile" ? `<span class="small">📱 Mobile</span> <span class="small muted">${b.wa_sent_at ? "WA ✓ " : ""}${b.email_sent_at ? "Email ✓" : ""}${!b.wa_sent_at && !b.email_sent_at ? "Not sent" : ""}</span>` : `<span class="small">🖨️ Printed</span> <span class="small muted">${b.printed_at ? "Printed ✓" : "Not printed"}</span>`}</td>
-    <td data-l="act"><div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-pass="${b.id}" type="button">Send / view</button>${st.k === "pending" || st.k === "upi" ? `<button class="btn sm primary" data-pay="${b.id}" type="button">Mark paid</button>` : ""}${st.k === "paid" ? `<button class="btn sm" data-unpay="${b.id}" type="button">Undo paid</button>` : ""}${st.k === "cancelled" ? `<button class="btn sm" data-restore="${b.id}" type="button">Restore</button>` : `<button class="btn sm danger" data-cancel="${b.id}" type="button">Cancel</button>`}</div></td>
+    <td data-l="act"><div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-pass="${b.id}" type="button">Send / view</button>${st.k === "pending" || st.k === "upi" ? `<button class="btn sm primary" data-pay="${b.id}" type="button">Mark paid</button>` : ""}${st.k === "paid" ? `<button class="btn sm" data-unpay="${b.id}" type="button">Undo paid</button>` : ""}${b.refund_status === "due" ? `<button class="btn sm primary" data-refund="${b.id}" type="button">Refund</button>` : ""}${st.k === "cancelled" ? (b.refund_status === "refunded" ? "" : `<button class="btn sm" data-restore="${b.id}" type="button">Restore</button>`) : `<button class="btn sm danger" data-cancel="${b.id}" type="button">Cancel</button>`}</div></td>
   </tr>`; }).join("")}</tbody></table></div>`;
   const find = id => S.bookings.find(x => x.id === id);
   $("#selAll").onchange = e => { list.forEach(b => { if (e.target.checked) sel[b.id] = 1; else delete sel[b.id]; }); renderBookings(); };
@@ -948,6 +1020,7 @@ function renderBookings() {
   $$("[data-unpay]", box).forEach(b => arm(b, () => rpc("undo_paid", b.dataset.unpay, "Payment entry removed"), "Confirm undo"));
   $$("[data-cancel]", box).forEach(b => arm(b, () => rpc("cancel_booking", b.dataset.cancel, "Booking cancelled"), "Confirm cancel"));
   $$("[data-restore]", box).forEach(b => b.onclick = () => rpc("restore_booking", b.dataset.restore, "Booking restored"));
+  $$("[data-refund]", box).forEach(b => b.onclick = () => refundForm(find(b.dataset.refund)));
   drawBulk();
 }
 function drawBulk() {
@@ -966,6 +1039,23 @@ async function bulkEmail(list, btn) {
   btn.disabled = true; let ok = 0;
   for (const b of list) { btn.textContent = `Sending ${ok + 1}/${list.length}…`; if (await emailPass(b)) ok++; else break; }
   toast(`${ok} of ${list.length} emailed`); btn.disabled = false; reloadSoon();
+}
+function refundForm(b) {
+  if (!b) return;
+  const o = openSheet(`<header><div><div class="muted small">Refund · ${esc(cancelInfo(b))}</div><h2>${esc(b.flat)} · ${esc(b.name)}</h2><div class="mono small muted">${esc(b.pass_no)}</div></div><button class="x" type="button" aria-label="Close">×</button></header>
+    <div class="prevbox"><div class="sumrow"><span>Paid</span><span>${esc(MODE[b.pay_mode] || "")}${b.collected_by_name ? " · received by " + esc(b.collected_by_name) : ""}</span><b class="num">${inr(b.refund_amount || 0)}</b></div></div>
+    <div class="field"><span class="lab">Refund</span><div class="seg"><label><input type="radio" name="rfY" value="1" checked> Money returned</label><label><input type="radio" name="rfY" value="0"> No refund</label></div></div>
+    <div class="field"><label for="rfRef">How / note</label><input id="rfRef" type="text" maxlength="120" placeholder="e.g. Cash returned by Sachin / UPI UTR 4123…"></div>
+    <div class="who small"><svg class="ic sm"><use href="#i-user"/></svg><span>Recorded by <b>${esc(meName())}</b> · ${fdt(new Date().toISOString())}</span></div>
+    <div class="err" id="rfErr"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn x2" type="button">Cancel</button><button class="btn primary" type="button" id="rfGo">Save</button></div>`);
+  $(".x2", o).onclick = closeSheet;
+  $("#rfGo", o).onclick = async () => {
+    const y = $("input[name=rfY]:checked", o).value === "1", note = $("#rfRef", o).value.trim();
+    if (!y && !note) return $("#rfErr", o).textContent = "Write why no refund is given.";
+    const { error } = await sb.rpc("record_refund", { p_booking: b.id, p_refunded: y, p_ref: note || null });
+    if (error) $("#rfErr", o).textContent = errMsg(error); else { closeSheet(); toast(y ? "Refund recorded" : "Saved: no refund"); reloadSoon(); }
+  };
 }
 /* record a payment for one or many bookings: mode, amount, who received the cash / who marked it */
 function payForm(b, many) {
@@ -1181,7 +1271,9 @@ function renderReports() {
         <dt>Passes / persons</dt><dd class="num">${r.passes} / ${r.persons} (${r.adults} A, ${r.children} C)</dd>
         <dt>Billed</dt><dd class="num">${inr(r.billed)}</dd><dt>Collected</dt><dd class="num">${inr(r.collected)} (Cash ${inr(r.cash)}, UPI ${inr(r.upi)}${r.other ? ", Other " + inr(r.other) : ""})</dd>
         <dt>Pending</dt><dd class="num">${inr(r.pending)}</dd>${r.cost ? `<dt>Actual cost</dt><dd class="num">${inr(r.cost)}</dd><dt>Society subsidy</dt><dd class="num">${inr(r.subsidy)}</dd>` : ""}
-        <dt>Cancelled</dt><dd class="num">${r.cancelled}</dd></dl></div>
+        <dt>Cancelled</dt><dd class="num">${r.cancelled}${r.autoCancelled ? ` (${r.autoCancelled} auto, unpaid)` : ""}</dd>
+        ${r.refundDueN ? `<dt>Refunds due</dt><dd class="num" style="color:var(--warn)"><b>${inr(r.refundDue)}</b> (${r.refundDueN})</dd>` : ""}${r.refunded ? `<dt>Refunded</dt><dd class="num">${inr(r.refunded)}</dd>` : ""}</dl>
+        ${policyBox(ev, null, "rules for this event")}</div>
     ${collectorTable(r)}`;
   $("#prNew").onclick = () => printPasses(unprinted); $("#prReady").onclick = () => printPasses(ready); $("#prAll").onclick = () => printPasses(bs);
   if (mobReady.length) arm($("#mlAll"), () => bulkEmail(mobReady, $("#mlAll")), "Confirm: email " + mobReady.length);
@@ -1236,10 +1328,10 @@ async function excel(evs) {
   const ids = new Set(evs.map(e => e.id)), wb = XLSX.utils.book_new();
   const sheet = rows => { const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Note: "No data" }]); const keys = Object.keys(rows[0] || { Note: 1 }); ws["!cols"] = keys.map(k => ({ wch: Math.min(40, Math.max(k.length + 2, ...rows.map(r => String(r[k] == null ? "" : r[k]).length + 1))) })); return ws; };
   XLSX.utils.book_append_sheet(wb, sheet(evs.map(ev => { const r = evStats(ev); return { "Event": ev.name_en || ev.name_gu, "Gujarati name": ev.name_gu || "", "Type": ev.kind === "multi" ? "Multiple sessions" : "One time", "Pricing": ev.price_mode === "free" ? "Free" : ev.price_mode === "discount" ? "Discounted" : "At cost",
-    "Booking opens": fd(ev.open_date), "Booking closes": fd(ev.close_date), "Passes": r.passes, "Adults": r.adults, "Children": r.children, "Persons": r.persons, "Billed (₹)": r.billed, "Collected (₹)": r.collected, "Cash (₹)": r.cash, "UPI (₹)": r.upi, "Other (₹)": r.other, "Pending (₹)": r.pending, "Actual cost (₹)": r.cost, "Society subsidy (₹)": r.subsidy, "Cancelled": r.cancelled }; })), "Summary");
+    "Booking opens": fd(ev.open_date), "Booking closes": fd(ev.close_date), "Passes": r.passes, "Adults": r.adults, "Children": r.children, "Persons": r.persons, "Billed (₹)": r.billed, "Collected (₹)": r.collected, "Cash (₹)": r.cash, "UPI (₹)": r.upi, "Other (₹)": r.other, "Pending (₹)": r.pending, "Refunds due (₹)": r.refundDue, "Refunded (₹)": r.refunded, "Actual cost (₹)": r.cost, "Society subsidy (₹)": r.subsidy, "Cancelled": r.cancelled }; })), "Summary");
   const bks = S.bookings.filter(b => ids.has(b.event_id)).sort((a, b) => a.flat.localeCompare(b.flat, undefined, { numeric: true }));
   const rows = bks.map(b => { const ev = evById(b.event_id) || {}, st = bStatus(b); return { "Event": ev.name_en || ev.name_gu, "Pass no.": b.pass_no, "Block": b.block, "Flat": b.flat, "Name": b.name, "Mobile": b.mobile, "Email": b.email || "", "Pass type": b.pass_type === "mobile" ? "Mobile" : "Printed",
-    "Sessions": sessLabel(ev, b.sessions), "Adults": b.adults, "Children": b.children, "Amount (₹)": +b.amount, "Late fee (₹)": +b.late_fee, "Status": st.label, "Paid amount (₹)": st.k === "paid" ? +b.paid_amount : 0, "Mode": MODE[b.pay_mode] || "", "Cash received by": b.pay_mode === "cash" ? b.collected_by_name || "" : "", "Marked paid by": b.paid_by_name || "", "Receipt / UTR": b.pay_ref || b.upi_ref || "", "Payment note": b.pay_note || "",
+    "Sessions": sessLabel(ev, b.sessions), "Adults": b.adults, "Children": b.children, "Amount (₹)": +b.amount, "Late fee (₹)": +b.late_fee, "Status": st.label, "Paid amount (₹)": st.k === "paid" ? +b.paid_amount : 0, "Mode": MODE[b.pay_mode] || "", "Cash received by": b.pay_mode === "cash" ? b.collected_by_name || "" : "", "Marked paid by": b.paid_by_name || "", "Receipt / UTR": b.pay_ref || b.upi_ref || "", "Payment note": b.pay_note || "", "Cancelled": b.status === "cancelled" ? cancelInfo(b) : "", "Refund": refundInfo(b) ? refundInfo(b).line : "",
     "Paid on": b.paid_at ? fdt(b.paid_at) : "", "Printed": b.printed_at ? fdt(b.printed_at) : "", "WhatsApp sent": b.wa_sent_at ? fdt(b.wa_sent_at) : "", "Email sent": b.email_sent_at ? fdt(b.email_sent_at) : "", "Booked on": fdt(b.created_at), "Booked at desk": b.by_committee ? "Yes" : "No" }; });
   XLSX.utils.book_append_sheet(wb, sheet(rows), "All bookings");
   const coll = []; evs.forEach(ev => Object.values(evStats(ev).byCollector).forEach(c => coll.push({ "Event": ev.name_en || ev.name_gu, "Committee member": c.name, "Cash received (₹)": c.cash, "Cash bookings": c.cashN, "UPI verified (₹)": c.upi, "UPI bookings": c.upiN, "Other (₹)": c.other, "Other bookings": c.otherN, "Total (₹)": c.cash + c.upi + c.other })));
