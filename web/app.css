@@ -196,3 +196,20 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .hero.mini p.hint{font-size:.74rem;line-height:1.4;opacity:.88;margin:8px 0 0;max-width:none}
 .hero.mini p.hint .gu{display:block}
 @media (max-width:520px){.mebtn:not([hidden]) ~ #logout{display:none}}
+
+/* resident: own passes inside the event tile */
+.cbox.tpass{border:1px dashed var(--line);border-radius:14px;background:var(--leaf-tint)}
+.cbox.tpass > .chead{padding:10px 12px}
+.tp-h{display:flex;gap:8px;align-items:flex-start;flex:1;min-width:0;text-align:left}
+.tp-h small{display:block;font-size:.78rem;color:var(--muted);font-weight:500}
+.tp-h .due{color:var(--warn);font-weight:700}.tp-h .okc{color:var(--ok);font-weight:700}
+.tpass .evtot b{display:grid;place-items:center;min-width:30px;height:30px;border-radius:50%;background:var(--leaf);color:var(--leaf-ink);font-size:.95rem}
+.tp-list{display:flex;flex-direction:column;gap:6px;padding:0 10px}
+.tp-row{display:flex;align-items:center;gap:10px;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 10px 6px 6px;cursor:pointer;text-align:left;font:inherit;color:inherit}
+.tp-row:hover{border-color:var(--leaf)}
+.tp-qr{width:44px;height:44px;flex:none;background:#fff;border-radius:6px;padding:2px}.tp-qr svg{width:100%;height:100%;display:block}
+.tp-txt{flex:1;min-width:0}.tp-txt small{display:block;font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tp-act{display:flex;gap:8px;flex-wrap:wrap;padding:10px}
+.ev .tp-act .btn.primary{width:auto;min-height:36px;font-size:.88rem}
+.tickets.one{display:block;max-width:420px;margin:0 auto}
+.tp-h b{font-size:.92rem}.tpass .evtot{background:none;padding:0}

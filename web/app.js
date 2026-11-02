@@ -256,8 +256,32 @@ function eventCard(ev) {
     <div class="meta">${[...new Set(ss.map(s => s.meal))].map(m => `<span class="tag">${esc(MEAL_GU[m] || m)} · ${esc(m)}</span>`).join("")}${ev.venue ? `<span class="tag"><svg class="ic sm"><use href="#i-pin"/></svg>${esc(ev.venue)}</span>` : ""}${left != null ? `<span class="tag">${left} places left</span>` : ""}</div>
     ${ev.notes ? `<div class="small muted">${esc(ev.notes)}</div>` : ""}
     <div class="price">${price}</div>${late}
-    ${w.k === "open" && left !== 0 ? `<button class="btn primary" data-book="${ev.id}" type="button"><svg class="ic sm"><use href="#i-ticket"/></svg>પાસ બુક કરો · Book pass</button>` : (left === 0 ? `<div class="chip bad">Fully booked</div>` : "")}
+    ${tilePasses(ev)}
+    ${w.k === "open" && left !== 0 ? `<button class="btn primary" data-book="${ev.id}" type="button"><svg class="ic sm"><use href="#i-ticket"/></svg>${mineFor(ev).length ? "વધુ પાસ બુક કરો · Book more passes" : "પાસ બુક કરો · Book pass"}</button>` : (left === 0 ? `<div class="chip bad">Fully booked</div>` : "")}
   </article>`;
+}
+/* resident's own active bookings for one event (RLS already limits S.bookings, filter again to be safe) */
+const mineFor = ev => S.bookings.filter(b => b.user_id === S.user.id && b.event_id === ev.id && active(b)).sort((x, y) => x.created_at.localeCompare(y.created_at));
+function tilePasses(ev) {
+  const list = mineFor(ev); if (!list.length) return "";
+  const T = sumUp(list), past = (((ev.sessions || []).slice(-1)[0] || {}).date || "") < today();
+  const rows = []; list.forEach(b => persons(b).forEach(pp => rows.push({ b, pp, st: personState(b, pp.n) })));
+  const ready = rows.filter(r => r.st.ok).length;
+  const head = `<span class="tp-h"><svg class="ic sm"><use href="#i-ticket"/></svg><span><b><span class="gu">તમારા પાસ</span> · Your passes</b>
+      <small>${pplTxt(T.adults, T.children)} · ${T.amount > 0 ? inr(T.amount) : "Free"}${T.due > 0 ? ` · <span class="due">due ${inr(T.due)}</span>` : T.amount > 0 ? ` · <span class="okc">paid</span>` : ""}</small></span></span>
+    <span class="evtot"><b>${T.persons}</b></span>`;
+  const body = `<div class="tp-list">${rows.map(r => {
+      const bs = bStatus(r.b), chip = r.st.done ? `<span class="chip info">${esc(r.st.why)}</span>` : r.b.status === "paid" ? `<span class="chip ok">${r.st.ok ? "Ready" : esc(r.st.why)}</span>` : `<span class="chip ${bs.cls}">${esc(bs.label)}</span>`;
+      return `<button type="button" class="tp-row" data-tq="${r.b.id}:${r.pp.n}"><span class="tp-qr">${qrSvg(passUrl(r.b, r.pp.n))}</span>
+        <span class="tp-txt"><b>${r.pp.type} ${r.pp.n}</b><small class="mono">${esc(tok(r.b, r.pp.n))}</small></span>${chip}</button>`;
+    }).join("")}</div>
+    <div class="tp-act">${ready > 1 && !past ? `<button class="btn sm primary" type="button" data-together="${ev.id}"><svg class="ic sm"><use href="#i-scan"/></svg>Collect ${ready} together</button>` : ""}
+      <a class="btn sm" href="#mypasses" data-gotomine="${ev.id}">Payment & details</a></div>`;
+  return collapsible("tp:" + ev.id, isOpen("tp:" + ev.id, false), head, body, "tpass");
+}
+function personQrSheet(b, n) {
+  openSheet(`<header><div><div class="muted small">Show this QR at the counter</div><h2>${persons(b)[n - 1].type} ${n} <span class="muted small">of ${b.adults + b.children}</span></h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+    <div class="tickets one">${ticket(b, n)}</div>`);
 }
 function renderResident() {
   renderAccount();
@@ -265,6 +289,12 @@ function renderResident() {
   const list = S.events.filter(e => e.published && !(windowState(e).k === "closed" && ((e.sessions.slice(-1)[0] || {}).date || "") < today()))
     .sort((a, b) => String((a.sessions[0] || {}).date).localeCompare(String((b.sessions[0] || {}).date)));
   box.innerHTML = list.length ? list.map(eventCard).join("") : `<div class="empty" style="grid-column:1/-1"><b>હાલ કોઈ બુકિંગ ચાલુ નથી</b>No booking is open right now. Events such as 26 January, 15 August, Holi and Navratri will appear here when the committee opens booking.</div>`;
+  box.onclick = e => {
+    const t = e.target.closest("[data-tg]"); if (t) { toggleBox(t); return; }
+    const q = e.target.closest("[data-tq]"); if (q) { const [id, n] = q.dataset.tq.split(":"); const b = S.bookings.find(x => x.id === id); if (b) personQrSheet(b, +n); return; }
+    const g = e.target.closest("[data-together]"); if (g) { groupSheet(evById(g.dataset.together)); return; }
+    const m = e.target.closest("[data-gotomine]"); if (m) { e.preventDefault(); $("#myEv").value = m.dataset.gotomine; openState["ev:" + m.dataset.gotomine] = true; renderMine(); $("#mypasses").scrollIntoView({ behavior: "smooth", block: "start" }); }
+  };
   $$("[data-book]", box).forEach(b => b.onclick = () => {
     if (!profileComplete()) { S.editProfile = true; renderAccount(); $("#acct").scrollIntoView({ behavior: "smooth" }); toast("Add your details first, then book."); return; }
     bookingForm(evById(b.dataset.book), false);
