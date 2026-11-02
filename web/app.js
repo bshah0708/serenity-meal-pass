@@ -433,15 +433,34 @@ function paySection(b) {
     ${upiBlock(b)}
   </div>`;
 }
-function myBookingCard(b, i, n) {
-  const ev = evById(b.event_id) || {}, st = bStatus(b);
-  return `<article class="mybk${b.status === "cancelled" ? " is-cancelled" : ""}">
-    <div class="mybk-h"><div><b>Booking ${i} of ${n}</b> · ${pplTxt(b.adults, b.children)}<div class="small muted">${esc(sessLabel(ev, b.sessions))} · ${esc(evDates(ev, b))} · ${b.pass_type === "physical" ? "Printed pass" : "Mobile pass"} · booked ${fd(b.created_at)}</div></div><span class="chip ${st.cls}">${esc(st.label)}</span></div>
-    ${b.status === "cancelled" ? "" : `<div class="seclabel"><span class="gu">પાસ</span> · Passes <small>one QR per person</small></div><div class="tickets">${persons(b).map(p => ticket(b, p.n)).join("")}</div>`}
-    <div class="sep"><span><span class="gu">ચુકવણી</span> · Payment</span></div>
-    ${paySection(b)}
-    ${b.status !== "cancelled" ? `<div class="row mybk-act"><a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>${b.status === "pending" ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}">Cancel booking</button>` : ""}</div>` : ""}
-  </article>`;
+/* ── collapsible sections: state survives re-renders (live updates) ── */
+const openState = {};
+const isOpen = (key, dflt) => (key in openState ? openState[key] : dflt);
+const chev = `<svg class="ic sm chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+function collapsible(key, open, headHtml, bodyHtml, cls) {
+  return `<div class="cbox ${cls || ""}${open ? " open" : ""}" data-key="${key}">
+    <button class="chead" type="button" aria-expanded="${open}" data-tg="${key}">${headHtml}${chev}</button>
+    <div class="coll"><div class="coll-in"${open ? "" : " inert"}>${bodyHtml}</div></div></div>`;
+}
+function toggleBox(btn) {
+  const box = btn.closest(".cbox"), key = box.dataset.key, open = !box.classList.contains("open");
+  openState[key] = open; box.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open));
+  const inner = box.querySelector(":scope > .coll > .coll-in"); if (open) inner.removeAttribute("inert"); else inner.setAttribute("inert", "");
+}
+function myBookingCard(b, i, n, dfltOpen) {
+  const ev = evById(b.event_id) || {}, st = bStatus(b), cancelled = b.status === "cancelled", due = st.k === "pending" || st.k === "upi";
+  const head = `<span class="bkno${cancelled ? " x" : ""}">${i}</span>
+    <span class="bkmain"><b>${b.adults + b.children} pass${b.adults + b.children === 1 ? "" : "es"}</b><small>${b.adults} adult${b.adults === 1 ? "" : "s"}${b.children ? ", " + b.children + " child" + (b.children > 1 ? "ren" : "") : ""} · ${esc(sessLabel(ev, b.sessions))}</small><small class="mono">${esc(b.pass_no)} · ${b.pass_type === "physical" ? "Printed" : "Mobile"}</small></span>
+    <span class="bkside"><b class="num">${+b.amount > 0 ? inr(b.amount) : "Free"}</b><span class="chip ${st.cls}">${esc(st.label)}</span></span>`;
+  const passes = cancelled ? `<p class="small muted" style="margin:0">This booking was cancelled.</p>` : collapsible("pp:" + b.id, isOpen("pp:" + b.id, !due || n === 1),
+    `<span class="subh"><svg class="ic sm"><use href="#i-ticket"/></svg><span><span class="gu">પાસ</span> · Passes <small>${b.adults + b.children} QR code${b.adults + b.children === 1 ? "" : "s"}, one per person</small></span></span>`,
+    `<div class="tickets">${persons(b).map(p => ticket(b, p.n)).join("")}</div>`, "sub");
+  const pay = collapsible("py:" + b.id, isOpen("py:" + b.id, due),
+    `<span class="subh"><span class="rs">₹</span><span><span class="gu">ચુકવણી</span> · Payment <small>${cancelled ? "Cancelled" : due ? "Due " + inr(b.amount) : +b.amount > 0 ? "Paid " + inr(b.amount) + (b.pay_mode ? " · " + b.pay_mode.toUpperCase() : "") : "Free"}</small></span></span>`,
+    paySection(b), "sub pay");
+  const body = `<div class="bkbody">${passes}${pay}
+    ${!cancelled ? `<div class="row mybk-act"><a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>${b.status === "pending" ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}">Cancel booking</button>` : ""}<span class="small muted" style="margin-left:auto">Booked ${fd(b.created_at)}</span></div>` : ""}</div>`;
+  return collapsible("bk:" + b.id, isOpen("bk:" + b.id, dfltOpen), head, body, "mybk" + (cancelled ? " is-cancelled" : "") + (due ? " is-due" : ""));
 }
 function renderMine() {
   const box = $("#myList"), bar = $("#myTools");
@@ -449,31 +468,36 @@ function renderMine() {
   bar.hidden = !mine.length;
   if (!mine.length) { box.innerHTML = `<div class="empty"><b>No passes yet</b>Book from an open event above. Your passes will appear here.</div>`; return; }
   const firstDate = e => ((e.sessions || [])[0] || {}).date || e.open_date || "";
+  const lastDate = e => ((e.sessions || []).slice(-1)[0] || {}).date || e.close_date || "";
   const evIds = [...new Set(mine.map(b => b.event_id))].map(evById).filter(Boolean).sort((x, y) => firstDate(y).localeCompare(firstDate(x)));
   const sel = $("#myEv"), cur = sel.value;
   sel.innerHTML = `<option value="">All events (${evIds.length})</option>` + evIds.map(e => `<option value="${e.id}">${esc(e.name_gu || e.name_en)}${e.name_gu && e.name_en ? " · " + esc(e.name_en) : ""}</option>`).join("");
   if (evIds.some(e => e.id === cur)) sel.value = cur;
-  const q = $("#myQ").value.trim().toLowerCase();
+  const q = $("#myQ").value.trim().toLowerCase(), filtering = !!(q || sel.value);
   const groups = evIds.filter(e => !sel.value || e.id === sel.value).map(e => {
     const all = mine.filter(b => b.event_id === e.id).sort((x, y) => x.created_at.localeCompare(y.created_at));
     const shown = all.filter(b => !q || [b.pass_no, b.name, b.flat, e.name_gu, e.name_en, evDates(e, b), ...persons(b).map(p => tok(b, p.n))].join(" ").toLowerCase().includes(q));
     return { e, all, shown };
   }).filter(g => g.shown.length);
   if (!groups.length) { box.innerHTML = `<div class="empty"><b>No passes match</b>Try another event or clear the search.</div>`; return; }
-  box.innerHTML = groups.map(({ e, all, shown }) => {
-    const T = sumUp(all), activeList = all.filter(active);
-    return `<section class="evgroup">
-      <div class="evhead"><div style="min-width:0"><h3 class="gu">${esc(e.name_gu || e.name_en)}</h3>${e.name_gu && e.name_en ? `<div class="small muted">${esc(e.name_en)}</div>` : ""}
-        <div class="small muted">${esc((e.sessions || []).length ? fd(e.sessions[0].date) + ((e.sessions || []).length > 1 ? " → " + fd(e.sessions[e.sessions.length - 1].date) : "") : "")}${e.venue ? " · " + esc(e.venue) : ""}</div></div>
-        <div class="evtot"><b>${T.persons}</b><span>pass${T.persons === 1 ? "" : "es"}</span></div></div>
-      <div class="evsum"><span>${T.count} booking${T.count === 1 ? "" : "s"} · ${pplTxt(T.adults, T.children)}</span><span>Total <b class="num">${inr(T.amount)}</b>${T.due > 0 ? ` · <span style="color:var(--warn)">due ${inr(T.due)}</span>` : T.amount > 0 ? ` · <span style="color:var(--ok)">all paid</span>` : ""}</span></div>
-      ${shown.map(b => myBookingCard(b, activeList.indexOf(b) + 1 || all.indexOf(b) + 1, b.status === "cancelled" ? all.length : activeList.length)).join("")}
-      ${windowState(e).k === "open" ? `<button class="btn" type="button" data-bookmore="${e.id}"><svg class="ic sm"><use href="#i-plus"/></svg>Book more passes for this event</button>` : ""}
-    </section>`;
+  box.innerHTML = groups.map(({ e, all, shown }, gi) => {
+    const T = sumUp(all), activeList = all.filter(active), past = lastDate(e) < today();
+    const latest = activeList[activeList.length - 1];
+    const head = `<span class="evh-main"><b class="gu">${esc(e.name_gu || e.name_en)}</b>${e.name_gu && e.name_en ? `<small>${esc(e.name_en)}</small>` : ""}
+        <small>${esc((e.sessions || []).length ? fd(e.sessions[0].date) + (e.sessions.length > 1 ? " → " + fd(e.sessions[e.sessions.length - 1].date) : "") : "")}${past ? " · completed" : ""}</small></span>
+      <span class="evtot"><b>${T.persons}</b><span>pass${T.persons === 1 ? "" : "es"}</span></span>`;
+    const body = `<div class="evsum"><span>${T.count} booking${T.count === 1 ? "" : "s"} · ${pplTxt(T.adults, T.children)}</span><span>Total <b class="num">${inr(T.amount)}</b>${T.due > 0 ? ` · <span class="due">due ${inr(T.due)}</span>` : T.amount > 0 ? ` · <span class="okc">all paid</span>` : ""}</span></div>
+      <div class="bklist">${shown.map(b => myBookingCard(b, (activeList.indexOf(b) + 1) || "×", activeList.length, filtering || b === latest)).join("")}</div>
+      ${windowState(e).k === "open" ? `<button class="btn more" type="button" data-bookmore="${e.id}"><svg class="ic sm"><use href="#i-plus"/></svg>Book more passes for this event</button>` : ""}`;
+    return collapsible("ev:" + e.id, isOpen("ev:" + e.id, filtering || !past || gi === 0), head, body, "evgroup");
   }).join("");
   wireUtr(box);
   $$("[data-bookmore]", box).forEach(btn => btn.onclick = () => bookingForm(evById(btn.dataset.bookmore), false));
   $$("[data-mycancel]", box).forEach(btn => arm(btn, async () => { const { error } = await sb.rpc("cancel_booking", { p_booking: btn.dataset.mycancel }); if (error) toast(errMsg(error)); else { toast("Booking cancelled"); reloadSoon(); } }, "Confirm cancel"));
+}
+$("#myList").addEventListener("click", e => { const t = e.target.closest("[data-tg]"); if (t) toggleBox(t); });
+function setAllMine(open) {
+  $$("#myList .cbox").forEach(b => { if (b.classList.contains("open") !== open) toggleBox(b.querySelector(":scope > .chead")); });
 }
 function renderReqBox() {
   const box = $("#reqBox");
@@ -1045,6 +1069,7 @@ $("#bkNew").onclick = () => { const ev = evById($("#bkEvent").value) || S.events
 $("#newEvent").onclick = () => eventForm();
 $("#bkBlock").innerHTML = blockOpts(true);
 $("#myEv").onchange = renderMine; $("#myQ").addEventListener("input", renderMine);
+$("#myOpenAll").onclick = () => setAllMine(true); $("#myCloseAll").onclick = () => setAllMine(false);
 try { const t = localStorage.getItem("ss_tab"); if (t) tab = t; } catch (e) {}
 
 /* ───────────── install as an app (Android + iPhone) ───────────── */
