@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="gu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Meal Pass · Serenity Space</title>
+<meta name="theme-color" content="#1F5A33">
+<link rel="icon" href="assets/tree.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+Bhai+2:wght@600;700&family=Figtree:wght@400;600;700&family=Hind+Vadodara:wght@400;600&family=IBM+Plex+Mono:wght@600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="app.css">
+<style>
+  .pv{max-width:460px;margin:20px auto;display:grid;gap:14px}
+  .pv .tk-b{grid-template-columns:1fr}
+  .pv .tk-b .qr{width:min(78vw,300px);height:min(78vw,300px);margin:0 auto;padding:10px}
+  .pv .kv{font-size:1rem}
+  .bright{font-size:.85rem;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="pv" id="pv"><div class="center"><span class="spinner"></span></div></div>
+<p class="foot">Serenity Space Co-operative Housing Society Ltd., Jagatpur, Gota, Ahmedabad</p></div>
+<script src="vendor/supabase.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="config.js"></script>
+<script>
+window.addEventListener("hashchange", () => location.reload());
+(async function(){
+  const C = window.SS_CONFIG || {}, box = document.getElementById("pv");
+  const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const fd = s => { const [y,m,d] = String(s).split("-"); return d + "-" + MON[+m-1] + "-" + y; };
+  const tokn = decodeURIComponent(location.hash.slice(1)).toUpperCase();
+  const qr = t => { const q = qrcode(0, "Q"); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); };
+  if (!tokn) { box.innerHTML = `<div class="empty"><b>No pass selected</b>Open the link you received on WhatsApp or email.</div>`; return; }
+  try {
+    const sb = window.supabase.createClient(C.supabaseUrl, C.supabaseAnonKey, { auth: { persistSession: false } });
+    const { data: p, error } = await sb.rpc("public_pass", { p_token: tokn });
+    if (error || !p) throw error || new Error("not found");
+    const total = p.adults + p.children, people = [];
+    for (let i = 0; i < p.adults; i++) people.push({ n: people.length + 1, type: "Adult", gu: "મોટા" });
+    for (let i = 0; i < p.children; i++) people.push({ n: people.length + 1, type: "Child", gu: "બાળક" });
+    const show = p.person ? people.filter(x => x.n === p.person) : people;
+    const st = p.status === "paid" ? (p.amount > 0 ? ["ok","Paid"] : ["ok","Free"]) : p.status === "cancelled" ? ["bad","Cancelled"] : ["warn","Payment pending"];
+    const dates = [...new Set(p.sessions.map(s => fd(s.date)))].join(", ");
+    const base = location.href.replace(/#.*$/, "");
+    box.innerHTML = show.map(x => `<div class="tk">
+      <div class="tk-h"><div class="gu">${esc(p.event.name_gu || p.event.name_en)}</div>${p.event.name_gu && p.event.name_en ? `<small>${esc(p.event.name_en)}</small>` : ""}</div>
+      <div class="tk-b"><div class="qr">${qr(base + "#" + p.pass_no + "-" + x.n)}</div>
+        <dl class="kv"><dt>Person</dt><dd><b>${x.type} ${x.n}</b> of ${total} <span class="gu muted">${x.gu}</span></dd>
+        <dt>Flat</dt><dd><b>${esc(p.flat)}</b></dd><dt>Name</dt><dd>${esc(p.name)}</dd>
+        <dt>Date</dt><dd>${esc(dates)}</dd><dt>Session</dt><dd>${esc(p.sessions.map(s => s.label || s.meal).join(", "))}</dd>${p.event.venue ? `<dt>Venue</dt><dd>${esc(p.event.venue)}</dd>` : ""}</dl></div>
+      <div class="tk-f"><span class="mono">${esc(p.pass_no)}-${x.n}</span><span class="chip ${st[0]}">${st[1]}</span></div></div>`).join("")
+      + `<p class="bright gu">કાઉન્ટર પર આ QR બતાવો · Show this QR at the counter. Turn screen brightness up.</p>`
+      + (p.person && total > 1 ? `<p class="bright"><a href="${esc(base + "#" + p.pass_no)}">Show all ${total} passes of this booking</a></p>` : "");
+  } catch (e) {
+    box.innerHTML = `<div class="empty"><b>Pass not found</b>Check the link, or contact the committee desk.</div>`;
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Publishes the web app (web/) to GitHub Pages.
+# Needs repository variables: SUPABASE_URL, SUPABASE_ANON_KEY, SITE_URL
+# and Settings → Pages → Source = "GitHub Actions".
+name: Deploy website
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/deploy-web.yml"]
+  workflow_dispatch:
+permissions: { contents: read, pages: write, id-token: write }
+concurrency: { group: pages, cancel-in-progress: true }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: "${{ steps.deployment.outputs.page_url }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write config.js
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then echo "::error::Set repository variables SUPABASE_URL and SUPABASE_ANON_KEY — see docs/SETUP.md step 3"; exit 1; fi
+          printf 'window.SS_CONFIG={supabaseUrl:%s,supabaseAnonKey:%s,siteUrl:%s};\n' \
+            "$(jq -Rn --arg v "$SUPABASE_URL" '$v')" "$(jq -Rn --arg v "$SUPABASE_ANON_KEY" '$v')" "$(jq -Rn --arg v "$SITE_URL" '$v')" > web/config.js
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: web }
+      - id: deployment
+        uses: actions/deploy-pages@v4

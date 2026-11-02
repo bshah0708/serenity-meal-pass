@@ -1,0 +1,12 @@
+{
+  "name": "serenity-meal-pass-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node db.test.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.2.17"
+  },
+  "type": "module",
+  "private": true
+}

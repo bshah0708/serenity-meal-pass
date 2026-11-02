@@ -1,0 +1,50 @@
+# Applies database migrations and deploys the Edge Functions to your Supabase project.
+# Needs repository secrets: SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD, SUPABASE_PROJECT_REF
+# Optional secrets passed to the functions: MSG91_AUTH_KEY, MSG91_TEMPLATE_ID, MSG91_OTP_VAR,
+#   SEND_SMS_HOOK_SECRETS, RESEND_API_KEY, PASS_FROM_EMAIL   (and the variable SITE_URL)
+name: Deploy Supabase
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/**", ".github/workflows/deploy-supabase.yml"]
+  workflow_dispatch:
+concurrency: deploy-supabase
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+      - name: Check secrets
+        run: |
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD PROJECT_REF; do
+            if [ -z "${!v}" ]; then echo "::error::Missing secret $v — see docs/SETUP.md step 3"; exit 1; fi
+          done
+      - name: Link project
+        run: supabase link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
+      - name: Apply database migrations
+        run: supabase db push -p "$SUPABASE_DB_PASSWORD"
+      - name: Set function secrets
+        env:
+          MSG91_AUTH_KEY: ${{ secrets.MSG91_AUTH_KEY }}
+          MSG91_TEMPLATE_ID: ${{ secrets.MSG91_TEMPLATE_ID }}
+          MSG91_OTP_VAR: ${{ secrets.MSG91_OTP_VAR }}
+          SEND_SMS_HOOK_SECRETS: ${{ secrets.SEND_SMS_HOOK_SECRETS }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          PASS_FROM_EMAIL: ${{ secrets.PASS_FROM_EMAIL }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          args=()
+          for v in MSG91_AUTH_KEY MSG91_TEMPLATE_ID MSG91_OTP_VAR SEND_SMS_HOOK_SECRETS RESEND_API_KEY PASS_FROM_EMAIL SITE_URL; do
+            [ -n "${!v}" ] && args+=("$v=${!v}")
+          done
+          if [ ${#args[@]} -gt 0 ]; then supabase secrets set --project-ref "$PROJECT_REF" "${args[@]}"; else echo "No function secrets set yet"; fi
+      - name: Deploy Edge Functions
+        run: |
+          supabase functions deploy sms-hook --project-ref "$PROJECT_REF" --no-verify-jwt
+          supabase functions deploy send-pass --project-ref "$PROJECT_REF"

@@ -1,0 +1,39 @@
+# Supabase CLI configuration — used by `supabase start` (local) and `supabase config push` (hosted).
+project_id = "serenity-meal-pass"
+
+[api]
+schemas = ["public"]
+max_rows = 2000
+
+[auth]
+site_url = "https://YOUR-GITHUB-USER.github.io/serenity-meal-pass"
+additional_redirect_urls = ["http://localhost:5173"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.sms]
+enable_signup = true
+enable_confirmations = true
+template = "Your Serenity Space login code is {{ .Code }}"
+max_frequency = "60s"
+# Free test logins before MSG91 is live: these numbers always accept the code shown (no SMS sent).
+[auth.sms.test_otp]
+919724212198 = "123456"
+
+# SMS goes through the MSG91 hook below, so no built-in provider is enabled.
+[auth.hook.send_sms]
+enabled = true
+uri = "https://YOUR-PROJECT-REF.supabase.co/functions/v1/sms-hook"
+secrets = "env(SEND_SMS_HOOK_SECRETS)"
+
+[auth.rate_limit]
+sms_sent = 60
+
+[auth.email]
+enable_signup = false
+
+[functions.sms-hook]
+verify_jwt = false
+
+[functions.send-pass]
+verify_jwt = true

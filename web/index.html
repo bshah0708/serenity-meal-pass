@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="gu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Serenity Space Meal Pass</title>
+<meta name="theme-color" content="#1F5A33">
+<link rel="icon" href="assets/tree.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+Bhai+2:wght@500;600;700&family=Figtree:wght@400;500;600;700;800&family=Hind+Vadodara:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M4 12h16"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M3 8.5V6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v2a2.5 2.5 0 0 0 0 5v2a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 15.5v-2a2.5 2.5 0 0 0 0-5z"/><path d="M14 5v12" stroke-dasharray="2 2.2"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 20a6.5 6.5 0 0 0-3-5.5"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v6c0 4.5 3.2 7.8 7.5 9 4.3-1.2 7.5-4.5 7.5-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5a7 7 0 0 0-14 0C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="M10 16l-4-4 4-4M6 12h10"/></symbol>
+</svg>
+
+<header class="appbar"><div class="in">
+  <div class="mark" aria-hidden="true"><i></i></div>
+  <div class="brand">
+    <div class="s">Serenity Space</div>
+    <h1>Meal Pass <span class="gu">ભોજન પાસ</span></h1>
+  </div>
+  <span class="chip gold" id="roleBadge" hidden></span>
+  <div class="switch" id="modeSwitch" hidden>
+    <button type="button" id="mAdmin" aria-pressed="true" title="Committee"><svg class="ic sm"><use href="#i-shield"/></svg><span>Committee</span></button>
+    <button type="button" id="mRes" aria-pressed="false" title="Resident view"><svg class="ic sm"><use href="#i-user"/></svg><span>Resident</span></button>
+  </div>
+  <button type="button" class="iconbtn" id="logout" title="Log out" hidden><svg class="ic"><use href="#i-logout"/></svg></button>
+</div></header>
+
+<div class="wrap">
+  <div id="sysNote"></div>
+
+  <!-- LOGIN -->
+  <main id="login" hidden>
+    <section class="login card">
+      <div class="login-mark"><i></i></div>
+      <h2 class="gu">લૉગિન કરો</h2>
+      <p class="muted">Log in with your mobile number. We'll send a 6-digit code by SMS.</p>
+      <form id="phoneForm" class="lstep">
+        <div class="field"><label for="lgPhone">Mobile number <span class="gu">મોબાઇલ નંબર</span></label>
+          <div class="phonebox"><span>+91</span><input id="lgPhone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="10" placeholder="98xxxxxxxx" required></div></div>
+        <div class="err" id="lgErr1"></div>
+        <button class="btn primary big" id="lgSend" type="submit">Send code</button>
+      </form>
+      <form id="otpForm" class="lstep" hidden>
+        <p class="small">Code sent to <b id="lgTo"></b> · <button type="button" class="linkbtn" id="lgChange">Change</button></p>
+        <div class="field"><label for="lgOtp">6-digit code <span class="gu">કોડ</span></label>
+          <input id="lgOtp" class="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required></div>
+        <div class="err" id="lgErr2"></div>
+        <button class="btn primary big" id="lgVerify" type="submit">Verify &amp; log in</button>
+        <button class="btn" type="button" id="lgResend" disabled>Resend code</button>
+      </form>
+      <p class="small muted" style="margin:0">Only residents of Serenity Space can book. Your bookings are private to your account.</p>
+    </section>
+  </main>
+
+  <!-- RESIDENT -->
+  <main id="resident" hidden>
+    <section class="hero">
+      <h2 class="gu">ભોજન / નાસ્તા પાસ બુક કરો</h2>
+      <p class="gu">સોસાયટીના કાર્યક્રમ માટે પાસ અહીં બુક કરો. મોબાઇલ પાસ કે પ્રિન્ટેડ પાસ, તમારી પસંદ.</p>
+      <p>Book meal and snack passes for society events. Show a mobile pass on your phone or collect a printed one.</p>
+      <div class="acts">
+        <a class="btn" href="#evlist"><svg class="ic sm"><use href="#i-ticket"/></svg>Book a pass</a>
+        <a class="btn ghost" href="#mypasses"><svg class="ic sm"><use href="#i-ticket"/></svg>My passes</a>
+      </div>
+    </section>
+    <section class="section" id="acct"><div id="acctBox"></div></section>
+    <section class="section" id="evlist">
+      <h2 class="sec-h"><svg class="ic"><use href="#i-cal"/></svg><span class="gu">કાર્યક્રમ</span> <small>Events open for booking</small></h2>
+      <div id="resEvents" class="events"></div>
+    </section>
+    <section class="section" id="mypasses">
+      <h2 class="sec-h"><svg class="ic"><use href="#i-ticket"/></svg><span class="gu">મારા પાસ</span> <small>My passes</small></h2>
+      <div id="myList"></div>
+    </section>
+    <section class="section" id="reqBox"></section>
+  </main>
+
+  <!-- COMMITTEE -->
+  <main id="admin" hidden>
+    <nav class="tabs" role="tablist" id="tabs" aria-label="Committee sections">
+      <button role="tab" data-tab="overview" aria-selected="true"><svg class="ic"><use href="#i-home"/></svg><span class="lbl-long">Overview</span><span class="lbl-short">Home</span></button>
+      <button role="tab" data-tab="events" aria-selected="false"><svg class="ic"><use href="#i-cal"/></svg><span>Events</span></button>
+      <button role="tab" data-tab="bookings" aria-selected="false"><svg class="ic"><use href="#i-list"/></svg><span>Bookings</span></button>
+      <button role="tab" data-tab="counter" aria-selected="false"><svg class="ic"><use href="#i-scan"/></svg><span class="lbl-long">Counter</span><span class="lbl-short">Scan</span></button>
+      <button role="tab" data-tab="reports" aria-selected="false"><svg class="ic"><use href="#i-chart"/></svg><span class="lbl-long">Reports &amp; Print</span><span class="lbl-short">Reports</span></button>
+      <button role="tab" data-tab="settings" aria-selected="false"><svg class="ic"><use href="#i-gear"/></svg><span>Settings</span></button>
+    </nav>
+
+    <section data-pane="overview">
+      <div class="pane-head"><div><h2>Overview</h2><p>Bookings, money and headcount for one event.</p></div>
+        <div class="field" style="min-width:240px;flex:0 1 340px"><label for="ovEvent">Event</label><select id="ovEvent"></select></div></div>
+      <div id="ovBody"></div>
+    </section>
+
+    <section data-pane="events" hidden>
+      <div class="pane-head"><div><h2>Events</h2><p>Booking windows, rates and sessions.</p></div><button class="btn primary" id="newEvent" type="button"><svg class="ic sm"><use href="#i-plus"/></svg>New event</button></div>
+      <div id="evList"></div>
+    </section>
+
+    <section data-pane="bookings" hidden>
+      <div class="pane-head"><div><h2>Bookings</h2><p>Payments, passes and delivery.</p></div><button class="btn primary" id="bkNew" type="button"><svg class="ic sm"><use href="#i-plus"/></svg>Book for a resident</button></div>
+      <div class="card" style="margin-bottom:14px;padding:14px">
+        <div class="toolbar" style="margin:0">
+          <div class="field" style="flex:2 1 220px"><label for="bkSearch">Search</label><div class="searchbox"><svg class="ic sm"><use href="#i-search"/></svg><input id="bkSearch" type="text" placeholder="Flat, name, mobile, pass no."></div></div>
+          <div class="field"><label for="bkEvent">Event</label><select id="bkEvent"></select></div>
+          <div class="field" style="flex:0 1 170px"><label for="bkStatus">Status</label><select id="bkStatus">
+            <option value="">All active</option><option value="pending">Payment pending</option><option value="upi">UPI to verify</option><option value="paid">Paid</option><option value="free">Free</option><option value="cancelled">Cancelled</option><option value="unprinted">Printed pass · not printed yet</option><option value="unsent">Mobile pass · not sent yet</option></select></div>
+          <div class="field" style="flex:0 1 120px"><label for="bkType">Pass type</label><select id="bkType"><option value="">Both</option><option value="physical">Printed</option><option value="mobile">Mobile</option></select></div>
+          <div class="field" style="flex:0 1 90px"><label for="bkBlock">Block</label><select id="bkBlock"></select></div>
+        </div>
+      </div>
+      <div id="bkSummary" class="muted small" style="margin-bottom:8px;font-weight:600"></div>
+      <div id="bkTable"></div>
+      <div id="bkBulk"></div>
+    </section>
+
+    <section data-pane="counter" hidden>
+      <div class="pane-head"><div><h2>Counter</h2><p>Point the camera at each person's QR and hand over the item.</p></div></div>
+      <div class="scancard">
+        <div id="camBox" class="cam" hidden><video id="camVideo" playsinline muted></video><div class="reticle"></div>
+          <button class="btn sm camstop" id="camStop" type="button">Stop camera</button></div>
+        <button class="btn gold scanbtn" id="camStart" type="button"><svg class="ic"><use href="#i-camera"/></svg>Start scanner</button>
+        <span class="pick btn"><svg class="ic sm"><use href="#i-image"/></svg>From photo / screenshot<input id="ctPick" type="file" accept="image/*" aria-label="Choose a photo or screenshot of the pass"></span>
+        <div class="scanopts"><label class="row small" style="gap:8px"><input type="checkbox" id="ctAuto" checked> Mark item given automatically</label>
+          <span class="small muted" id="camHint"></span></div>
+      </div>
+      <div id="ctScan"></div>
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div class="toolbar" style="margin:0">
+          <div class="field" style="flex:2 1 220px"><label for="ctQ">Type pass no. or flat</label><div class="searchbox"><svg class="ic sm"><use href="#i-search"/></svg><input id="ctQ" type="text" placeholder="HOL27-E903-K7P2M or E-903"></div></div>
+          <div class="field" style="flex:1 1 200px"><label for="ctEvent">Event</label><select id="ctEvent"></select></div>
+        </div>
+      </div>
+      <div id="ctBody"></div>
+    </section>
+
+    <section data-pane="reports" hidden>
+      <div class="pane-head"><div><h2>Reports &amp; Print</h2><p>Printable passes, Excel workbooks and bulk email.</p></div>
+        <div class="field" style="min-width:240px;flex:0 1 340px"><label for="rpEvent">Event</label><select id="rpEvent"></select></div></div>
+      <div id="rpBody"></div>
+    </section>
+
+    <section data-pane="settings" hidden>
+      <div class="pane-head"><div><h2>Settings</h2><p>Committee access, payment desk and UPI.</p></div></div>
+      <div class="panel" id="accessPanel" hidden></div>
+      <div class="panel">
+        <h3>Payment collection desk</h3>
+        <div class="grid2" style="margin-top:12px">
+          <div class="field"><label for="stDesk">Where residents pay and collect passes</label><input id="stDesk" type="text" placeholder="Society office, ground floor, 7–9 pm"></div>
+          <div class="field"><label for="stContact">Contact number shown to residents</label><input id="stContact" type="text" placeholder="97242 12198"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="spread"><h3>UPI payments</h3><label class="row"><input type="checkbox" id="stUpiOn"> Show UPI option to residents</label></div>
+        <p class="muted small" style="margin:6px 0 12px">Residents scan a QR with the exact amount and enter the UPI reference (UTR). The committee checks the bank statement and marks the pass paid.</p>
+        <div class="grid2">
+          <div class="field"><label for="stUpiId">Society UPI ID</label><input id="stUpiId" type="text" placeholder="serenityspace@bank"></div>
+          <div class="field"><label for="stUpiName">Payee name</label><input id="stUpiName" type="text" placeholder="Serenity Space CHS Ltd"></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px"><button class="btn primary" id="stSave" type="button">Save settings</button><span id="stMsg" class="muted small"></span></div>
+    </section>
+  </main>
+
+  <p class="foot">Serenity Space Co-operative Housing Society Ltd., Jagatpur, Gota, Ahmedabad</p>
+</div>
+
+<script src="vendor/supabase.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="vendor/jsQR.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+name: Tests
+on:
+  push: { branches: [main] }
+  pull_request:
+  workflow_dispatch:
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci || npm install
+        working-directory: tests
+      - name: Privacy rules and booking logic (embedded Postgres)
+        run: node db.test.mjs
+        working-directory: tests
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install playwright==1.47.0 && python -m playwright install --with-deps chromium
+      - name: Browser smoke test (in-memory Supabase stand-in)
+        run: CHROMIUM=$(python -c "from playwright.sync_api import sync_playwright as p; s=p().start(); print(s.chromium.executable_path); s.stop()") python tests/web.test.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: screenshots, path: tests/shots }

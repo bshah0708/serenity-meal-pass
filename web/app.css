@@ -1,0 +1,22 @@
+/* Additions for the hosted version: login, live camera scanner, small utilities. */
+.iconbtn{border:0;background:var(--sunk);width:38px;height:38px;border-radius:12px;display:grid;place-items:center;cursor:pointer;color:var(--muted);flex:none}
+.iconbtn:hover{color:var(--ink)}
+.btn.big{min-height:50px;font-size:1.05rem;width:100%}
+.login{max-width:440px;margin:40px auto 0;display:grid;gap:16px;padding:24px}
+.login-mark{width:64px;height:64px;border-radius:20px;background:var(--leaf-soft);display:grid;place-items:center}
+.login-mark i{width:44px;height:40px;background:var(--leaf);-webkit-mask:url("assets/tree.png") center/contain no-repeat;mask:url("assets/tree.png") center/contain no-repeat}
+.lstep{display:grid;gap:12px}
+.phonebox{display:flex;align-items:stretch;border:1.5px solid var(--line2);border-radius:12px;overflow:hidden;background:var(--surface)}
+.phonebox:focus-within{border-color:var(--leaf);box-shadow:0 0 0 4px color-mix(in srgb,var(--leaf) 16%,transparent)}
+.phonebox span{display:grid;place-items:center;padding:0 12px;background:var(--sunk);font-weight:700;color:var(--muted)}
+.phonebox input{border:0!important;box-shadow:none!important;border-radius:0;font-size:1.15rem;letter-spacing:.04em}
+input.otp{font-family:var(--mono);font-size:1.6rem;letter-spacing:.5em;text-align:center}
+.cam{position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:3/4;max-height:62vh;width:100%;max-width:520px;justify-self:center}
+.cam video{width:100%;height:100%;object-fit:cover;display:block}
+.reticle{position:absolute;inset:18%;border:3px solid rgba(255,255,255,.9);border-radius:18px;box-shadow:0 0 0 999px rgba(0,0,0,.28)}
+.camstop{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.55);color:#fff;border-color:transparent}
+.cam.hit .reticle{border-color:#7BE39A}
+.status-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spinner{width:22px;height:22px;border-radius:50%;border:3px solid var(--line2);border-top-color:var(--leaf);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.center{display:grid;place-items:center;padding:40px 0}
