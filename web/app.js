@@ -1235,13 +1235,13 @@ function sessRows(b, sessions, givenMap, okToServe, focusN) {
       return d ? `<button class="pchip done${f}" type="button" data-unserve="${b.id}|${s.id}|${p.n}" title="Tap to mark not given (reason needed)">${p.type} ${p.n} ✓ ${hm(d.at)} <span class="undo">↺</span></button>`
                : `<button class="pchip${f}" type="button" data-serve="${b.id}|${s.id}|${p.n}"${okToServe ? "" : " disabled"}>${p.type} ${p.n}</button>`; }).join("");
     return `<div class="srow"><div class="spread"><span>${esc(s.label || s.meal)} · ${fd(s.date)}${s.date === today() ? ' <span class="chip gold">Today</span>' : ""}</span>
-      <span class="small muted">${ps.length - left.length}/${ps.length} given${left.length > 1 && okToServe ? ` · <button class="linkbtn" type="button" data-serveall="${b.id}|${s.id}|${left.map(p => p.n).join(",")}">give all ${left.length}</button>` : ""}</span></div>
-      <div class="pchips">${chips}</div>${ps.length - left.length ? `<div class="small muted" style="margin-top:4px">Tap a ✓ to mark <b>not given</b> (reason needed).</div>` : ""}</div>`;
+      <span class="small muted">${ps.length - left.length}/${ps.length} given${left.length > 1 && okToServe ? ` · <button class="linkbtn" type="button" title="Tap twice to mark all given" data-serveall="${b.id}|${s.id}|${left.map(p => p.n).join(",")}">give all ${left.length}</button>` : ""}</span></div>
+      <div class="pchips">${chips}</div><div class="small muted" style="margin-top:4px">Tap a name <b>twice</b> to mark given${ps.length - left.length ? ` · tap a ✓ to mark <b>not given</b> (reason needed)` : ""}.</div></div>`;
   }).join("");
 }
 function wireServe(box, after) {
   const call = async (bid, sid, ns, on) => { if (await setGiven(bid, sid, ns, on, "Person " + ns.join(", "))) after && after(); };
-  $$("[data-serve]", box).forEach(btn => btn.onclick = () => { const [b, s, n] = btn.dataset.serve.split("|"); call(b, s, [+n], true); });
+  $$("[data-serve]", box).forEach(btn => arm(btn, () => { const [b, s, n] = btn.dataset.serve.split("|"); call(b, s, [+n], true); }, "Give " + btn.textContent.trim() + "? Tap again"));
   $$("[data-serveall]", box).forEach(btn => arm(btn, () => { const [b, s, ns] = btn.dataset.serveall.split("|"); call(b, s, ns.split(",").map(Number), true); }, "confirm"));
   $$("[data-unserve]", box).forEach(btn => btn.onclick = () => { const [b, s, n] = btn.dataset.unserve.split("|"); call(b, s, [+n], false); });
 }
@@ -1327,7 +1327,9 @@ async function handleGroupScan(t, auto, force) {
 /* live camera */
 let camStream = null, camTimer = 0, detector = null;
 try { detector = ("BarcodeDetector" in window) ? new BarcodeDetector({ formats: ["qr_code"] }) : null; } catch (e) { detector = null; }
-let manyAt = 0;
+let manyAt = 0, farAt = 0, seen = null;
+const MIN_QR = 0.18;   // QR must cover at least ~18% of the camera frame width → a pass across the table is ignored
+function farHint() { const now = Date.now(); if (now - farAt < 3000) return; farAt = now; $("#camHint").textContent = "QR seen far away — hold the pass close to the camera, inside the box. Nothing marked."; setTimeout(() => { if ($("#camHint").textContent.startsWith("QR seen far")) $("#camHint").textContent = "Hold the QR inside the frame."; }, 2800); }
 function manyWarn() {
   const now = Date.now(); if (now - manyAt < 2500) return; manyAt = now;
   if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
@@ -1342,12 +1344,18 @@ async function startCam() {
   const tick = async () => {
     if (!camStream) return;
     if (v.readyState >= 2 && !scanBusy) {
-      let txt = null;
-      let many = false;
-      if (detector) { try { const r = await detector.detect(v); const uniq = [...new Set(r.map(x => x.rawValue))]; if (uniq.length > 1) many = true; else if (uniq[0]) txt = uniq[0]; } catch (e) {} }
+      let txt = null, size = 0, many = false;
+      const side = Math.min(v.videoWidth || 640, v.videoHeight || 480);
+      if (detector) { try { const r = await detector.detect(v); const uniq = [...new Set(r.map(x => x.rawValue))];
+        if (uniq.length > 1) many = true; else if (uniq[0]) { txt = uniq[0]; size = Math.max(...r.map(x => (x.boundingBox && x.boundingBox.width) || 0)) / side; } } catch (e) {} }
       if (many) { manyWarn(); camTimer = setTimeout(tick, 400); return; }
-      if (!txt) { const w = 640, h = Math.round(640 * v.videoHeight / v.videoWidth) || 480; cv.width = w; cv.height = h; g.drawImage(v, 0, 0, w, h); const r = jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" }); if (r) txt = r.data; }
-      if (txt) { $("#camBox").classList.add("hit"); setTimeout(() => $("#camBox").classList.remove("hit"), 400); handleScan(txt, $("#ctAuto").checked); }
+      if (!txt) { const w = 640, h = Math.round(640 * v.videoHeight / v.videoWidth) || 480; cv.width = w; cv.height = h; g.drawImage(v, 0, 0, w, h); const r = jsQR(g.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" });
+        if (r) { txt = r.data; const L = r.location; size = Math.hypot(L.topRightCorner.x - L.topLeftCorner.x, L.topRightCorner.y - L.topLeftCorner.y) / Math.min(w, h); } }
+      // act only on a deliberate scan: the QR must be held close (fills part of the frame) and seen in two frames in a row
+      if (txt && size < MIN_QR) { seen = null; farHint(); }
+      else if (txt && seen !== txt) { seen = txt; }
+      else if (txt) { seen = null; $("#camBox").classList.add("hit"); setTimeout(() => $("#camBox").classList.remove("hit"), 400); handleScan(txt, $("#ctAuto").checked); }
+      else seen = null;
     }
     camTimer = setTimeout(tick, 220);
   };

@@ -197,6 +197,11 @@ with sync_playwright() as pw:
     p.click("#tabs [data-tab=counter]"); p.wait_for_timeout(200)
     p.evaluate(f"document.querySelector('#ctQ').value='E-903';document.querySelector('#ctQ').dispatchEvent(new Event('input'))"); p.wait_for_timeout(200)
     check(p.locator("#ctBody .pchip").count() == 6, "counter search shows a chip per person per session")
+    n0 = p.evaluate("window.__T.checkins.length")
+    p.locator("#ctBody [data-serve]").first.click(); p.wait_for_timeout(300)
+    check(p.evaluate("window.__T.checkins.length") == n0 and "Tap again" in p.locator("#ctBody .pchip").first.inner_text(), "one tap on a person does not mark given (asks to tap again)")
+    p.locator("#ctBody .pchip").first.click(); p.wait_for_timeout(900)
+    check(p.evaluate("window.__T.checkins.length") == n0 + 1, "second tap marks given")
     p.screenshot(path=str(SHOTS / "6_counter.png"), full_page=True)
     p.click("#tabs [data-tab=settings]"); p.wait_for_timeout(200)
     check(p.locator("#accessPanel [data-ok]").count() == 1, "pending committee request listed for super admin")
@@ -262,7 +267,8 @@ with sync_playwright() as pw:
     print("Scanner: two QR codes in view")
     fake_cam = """
       window.__codes = [];
-      window.BarcodeDetector = class { constructor() {} async detect() { return window.__codes.map(v => ({ rawValue: v })); } };
+      window.__qrw = 30;
+      window.BarcodeDetector = class { constructor() {} async detect() { return window.__codes.map(v => ({ rawValue: v, boundingBox: { width: window.__qrw } })); } };
       navigator.mediaDevices.getUserMedia = async () => { const c = document.createElement('canvas'); c.width = 64; c.height = 48; const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*999); g.fillRect(0,0,64,48); }, 50); return c.captureStream(10); };
     """
     p, errs = page_for(b, "super", init=fake_cam)
@@ -271,8 +277,14 @@ with sync_playwright() as pw:
     p.evaluate(f"window.__codes = ['https://x/pass.html#{pn}-1', 'https://x/pass.html#{pn}-2']"); p.wait_for_timeout(900)
     check("More than one QR in view" in p.inner_text("#ctScan"), "two passes in the camera view: warning shown")
     check(p.evaluate("window.__T.checkins.length") == 0, "…and nothing is marked as given")
-    p.evaluate(f"window.__codes = ['https://x/pass.html#{pn}-1']"); p.wait_for_timeout(900)
-    check(p.evaluate("window.__T.checkins.length") == 1, "single pass in view is marked given (person 1 only)")
+    p.evaluate(f"window.__qrw = 4; window.__codes = ['https://x/pass.html#{pn}-1']"); p.wait_for_timeout(1200)
+    check(p.evaluate("window.__T.checkins.length") == 0 and "far away" in p.inner_text("#camHint"), "QR far from the camera (e.g. a phone across the table) is ignored")
+    p.evaluate("window.__qrw = 30"); p.wait_for_timeout(900)
+    check(p.evaluate("window.__T.checkins.length") == 1, "single pass held close is marked given (person 1 only)")
+    p.evaluate("window.__codes = []"); p.wait_for_timeout(300)
+    p.evaluate(f"window.__codes = ['https://x/pass.html#{pn}-2']"); p.wait_for_timeout(250); p.evaluate("window.__codes = []"); p.wait_for_timeout(600)
+    check(p.evaluate("window.__T.checkins.length") == 1, "a QR flashing past for one frame is not marked")
+    p.evaluate(f"window.__codes = ['https://x/pass.html#{pn}-1']"); p.wait_for_timeout(600)
     p.wait_for_timeout(4500)
     check(p.evaluate("window.__T.checkins.length") == 1 and "Already given" in p.inner_text("#ctScan"), "holding the same QR again: already given, no other person marked")
     check(errs == [], f"no page errors {errs}")
