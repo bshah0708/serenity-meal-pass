@@ -1307,7 +1307,7 @@ async function handleScan(raw, auto) {
     unpaid: ["ask", "Payment pending · " + inr(b.amount), `${b.upi_ref ? `<div class="small">UTR submitted: <span class="mono">${esc(b.upi_ref)}</span></div>` : ""}<div class="row" style="margin-top:6px"><button class="btn primary" type="button" data-scanpay>Collect &amp; mark paid</button></div>`],
     cancelled: ["stop", "✕ Cancelled pass", "<div>Do not give items.</div>"],
   }[j.result] || ["ask", j.result, ""];
-  box.innerHTML = `<div class="result ${cards[0]}" role="status"><div class="big">${cards[1]}</div>${detail}${cards[2]}</div>`;
+  box.innerHTML = `<div class="result ${cards[0]}" role="status"><div class="big">${cards[1]}</div>${detail}${cards[2]}<button class="btn gold scannext" type="button" data-scannext><svg class="ic"><use href="#i-camera"/></svg>Scan next QR</button></div>`;
   wireServe(box, () => { lastTok = ""; handleScan(tok(b, n), false); reloadSoon(); });
   const pb = $("[data-scanpay]", box); if (pb) pb.onclick = () => payForm(Object.assign(S.bookings.find(x => x.id === b.id) || b));
 }
@@ -1337,7 +1337,7 @@ async function handleGroupScan(t, auto, force) {
       <dt>Event</dt><dd><span class="gu">${esc(ev.name_gu || "")}</span>${ev.name_gu && ev.name_en ? " · " : ""}${esc(ev.name_en || "")}</dd></dl>
     <div class="glist">${rows}</div>
     ${!auto && j.ready ? `<button class="btn primary big" type="button" id="gGive">Give all ${j.ready} and mark as given</button>` : ""}
-    ${(j.flats || []).length > 1 ? `<div class="small" style="color:var(--warn)">This QR has passes from more than one flat. Check with the resident.</div>` : ""}</div>`;
+    ${(j.flats || []).length > 1 ? `<div class="small" style="color:var(--warn)">This QR has passes from more than one flat. Check with the resident.</div>` : ""}<button class="btn gold scannext" type="button" data-scannext><svg class="ic"><use href="#i-camera"/></svg>Scan next QR</button></div>`;
   if ($("#gGive")) $("#gGive").onclick = () => handleGroupScan(t, true, true);
   reloadSoon();
 }
@@ -1347,17 +1347,18 @@ let camStream = null, camTimer = 0, detector = null;
 try { detector = ("BarcodeDetector" in window) ? new BarcodeDetector({ formats: ["qr_code"] }) : null; } catch (e) { detector = null; }
 let manyAt = 0, farAt = 0, seen = null;
 const MIN_QR = 0.18;   // QR must cover at least ~18% of the camera frame width → a pass across the table is ignored
-function farHint() { const now = Date.now(); if (now - farAt < 3000) return; farAt = now; $("#camHint").textContent = "QR seen far away — hold the pass close to the camera, inside the box. Nothing marked."; setTimeout(() => { if ($("#camHint").textContent.startsWith("QR seen far")) $("#camHint").textContent = "Hold the QR inside the frame."; }, 2800); }
+function farHint() { const now = Date.now(); if (now - farAt < 3000) return; farAt = now; $("#camMsg").textContent = "QR too far — bring the pass closer. Nothing marked."; $("#camHint").textContent = "QR seen far away — hold the pass close to the camera, inside the box. Nothing marked."; setTimeout(() => { $("#camMsg").textContent = "Hold the pass close, inside the box"; }, 2800); }
 function manyWarn() {
   const now = Date.now(); if (now - manyAt < 2500) return; manyAt = now;
   if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+  if ($("#camMsg")) { $("#camMsg").textContent = "More than one QR in view — show one pass only"; setTimeout(() => { $("#camMsg").textContent = "Hold the pass close, inside the box"; }, 2500); }
   $("#ctScan").innerHTML = `<div class="result stop" role="status"><div class="big">✕ More than one QR in view</div><div class="small">Nothing was marked. Ask the resident to open <b>one pass at a time</b> (tap a person → Show QR), or use <b>Collect together</b> for one QR covering several people.</div></div>`;
 }
 async function startCam() {
   try { camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }, audio: false }); }
   catch (e) { $("#camHint").textContent = "Camera not available. Allow camera access in the browser, or use “From photo / screenshot”."; return; }
   const v = $("#camVideo"); v.srcObject = camStream; await v.play();
-  $("#camBox").hidden = false; $("#camStart").hidden = true; $("#camHint").textContent = "Hold the QR inside the frame.";
+  $("#camBox").hidden = false; $("#camStart").hidden = true; document.body.classList.add("camopen"); $("#camMsg").textContent = "Hold the pass close, inside the box";
   const cv = document.createElement("canvas"), g = cv.getContext("2d", { willReadFrequently: true });
   const tick = async () => {
     if (!camStream) return;
@@ -1372,15 +1373,17 @@ async function startCam() {
       // act only on a deliberate scan: the QR must be held close (fills part of the frame) and seen in two frames in a row
       if (txt && size < MIN_QR) { seen = null; farHint(); }
       else if (txt && seen !== txt) { seen = txt; }
-      else if (txt) { seen = null; $("#camBox").classList.add("hit"); setTimeout(() => $("#camBox").classList.remove("hit"), 400); handleScan(txt, $("#ctAuto").checked); }
+      else if (txt) { seen = null; if (navigator.vibrate) navigator.vibrate(40); stopCam(); lastTok = ""; await handleScan(txt, $("#ctAuto").checked); showResult(); return; }
       else seen = null;
     }
     camTimer = setTimeout(tick, 220);
   };
   tick();
 }
-function stopCam() { clearTimeout(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $("#camBox").hidden = true; $("#camStart").hidden = false; $("#camHint").textContent = ""; }
-$("#camStart").onclick = startCam; $("#camStop").onclick = stopCam;
+function stopCam() { clearTimeout(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $("#camBox").hidden = true; $("#camStart").hidden = false; $("#camHint").textContent = ""; document.body.classList.remove("camopen"); }
+function showResult() { const r = $("#ctScan"); if (r && r.firstElementChild) { r.scrollIntoView({ behavior: "smooth", block: "start" }); } }
+$("#camStart").onclick = startCam;
+document.addEventListener("click", e => { if (e.target.closest("[data-scannext]")) { $("#ctScan").innerHTML = ""; startCam(); } }); $("#camStop").onclick = stopCam;
 async function decodeFile(file) {
   const img = await createImageBitmap(file).catch(() => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); }));
   if (detector) { try { const r = await detector.detect(img); if (r[0]) return r[0].rawValue; } catch (e) {} }

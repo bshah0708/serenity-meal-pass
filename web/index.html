@@ -170,9 +170,10 @@
       <div class="pane-head"><div><h2>Counter</h2><p>Point the camera at each person's QR and hand over the item.</p></div></div>
       <div id="ctLive"></div>
       <div class="scancard">
-        <div id="camBox" class="cam" hidden><video id="camVideo" playsinline muted></video><div class="reticle"></div>
-          <button class="btn sm camstop" id="camStop" type="button">Stop camera</button></div>
-        <button class="btn gold scanbtn" id="camStart" type="button"><svg class="ic"><use href="#i-camera"/></svg>Start scanner</button>
+        <div id="camBox" class="cam" hidden role="dialog" aria-label="QR scanner"><video id="camVideo" playsinline muted></video><div class="reticle"></div>
+          <div class="camtop"><b>Scan one person's QR</b><span id="camMsg">Hold the pass close, inside the box</span></div>
+          <button class="btn camstop" id="camStop" type="button">✕ Close</button></div>
+        <button class="btn gold scanbtn" id="camStart" type="button"><svg class="ic"><use href="#i-camera"/></svg>Scan QR</button>
         <span class="pick btn"><svg class="ic sm"><use href="#i-image"/></svg>From photo / screenshot<input id="ctPick" type="file" accept="image/*" aria-label="Choose a photo or screenshot of the pass"></span>
         <div class="scanopts"><label class="row small" style="gap:8px"><input type="checkbox" id="ctAuto" checked> Mark item given automatically</label>
           <span class="small muted" id="camHint"></span></div>
