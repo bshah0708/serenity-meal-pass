@@ -242,6 +242,23 @@ with sync_playwright() as pw:
     check(errs == [], f"no page errors {errs}")
 
 
+    print("Email login")
+    p, errs = page_for(b, "resident", logged_in=False)
+    p.check("input[name=lgBy][value=email]"); p.wait_for_timeout(100)
+    check(p.is_visible("#lgEmail") and not p.is_visible("#lgPhone"), "login offers Email as an alternative to SMS")
+    p.fill("#lgEmail", "meena@example.com"); p.click("#lgSendE"); p.wait_for_timeout(300)
+    check(p.evaluate("window.__invoked[0][0]") == "email-otp" and p.is_visible("#otpForm") and "meena@example.com" in p.inner_text("#lgTo"), "code emailed; code screen shows the address")
+    p.screenshot(path=str(SHOTS / "21_email_login.png"))
+    p.fill("#lgOtp", "123456"); p.wait_for_timeout(900)
+    check(p.is_visible("#resident") and p.is_visible("#pfMob") and p.is_disabled("#pfMail"), "email login → profile asks for mobile; email shown as verified")
+    p.fill("#pfName", "Meena Desai"); p.select_option("#pfBlock", "B"); p.select_option("#pfFlat", "204"); p.fill("#pfMob", "12345"); p.click("#pfSave"); p.wait_for_timeout(200)
+    check("10-digit" in p.inner_text("#pfErr"), "mobile number required for email-login residents")
+    p.fill("#pfMob", "9811122233"); p.click("#pfSave"); p.wait_for_timeout(400)
+    check(p.is_visible("#meBtn"), "profile saved")
+    p.click("#resEvents [data-book]"); p.wait_for_timeout(300)
+    check(p.input_value("#fMob") == "9811122233", "booking form uses the typed mobile")
+    check(errs == [], f"no page errors {errs}")
+
     print("Scanner: two QR codes in view")
     fake_cam = """
       window.__codes = [];

@@ -69,7 +69,14 @@
     <section class="login card">
       <div class="login-mark"><i></i></div>
       <h2 class="gu">લૉગિન કરો</h2>
-      <p class="muted">Log in with your mobile number. We'll send a 6-digit code by SMS.</p>
+      <div class="seg lgtabs" role="tablist"><label><input type="radio" name="lgBy" value="phone" checked> 📱 Mobile (SMS)</label><label><input type="radio" name="lgBy" value="email"> ✉️ Email</label></div>
+      <p class="muted" id="lgHint">Log in with your mobile number. We'll send a 6-digit code by SMS.</p>
+      <form id="emailForm" class="lstep" hidden>
+        <div class="field"><label for="lgEmail">Email address <span class="gu">ઈમેલ</span></label>
+          <input id="lgEmail" type="email" inputmode="email" autocomplete="email" maxlength="100" placeholder="name@gmail.com" required></div>
+        <div class="err" id="lgErrE"></div>
+        <button class="btn primary big" id="lgSendE" type="submit">Email me a code</button>
+      </form>
       <form id="phoneForm" class="lstep">
         <div class="field"><label for="lgPhone">Mobile number <span class="gu">મોબાઇલ નંબર</span></label>
           <div class="phonebox"><span>+91</span><input id="lgPhone" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="10" placeholder="98xxxxxxxx" required></div></div>
@@ -78,6 +85,7 @@
       </form>
       <form id="otpForm" class="lstep" hidden>
         <p class="small">Code sent to <b id="lgTo"></b> · <button type="button" class="linkbtn" id="lgChange">Change</button></p>
+        <p class="small muted" id="lgSpam" hidden>Not in the inbox? Check <b>Spam / Promotions</b>. The email comes from the society Gmail.</p>
         <div class="field"><label for="lgOtp">6-digit code <span class="gu">કોડ</span></label>
           <input id="lgOtp" class="otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required></div>
         <div class="err" id="lgErr2"></div>

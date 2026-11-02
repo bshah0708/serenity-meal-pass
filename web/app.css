@@ -258,3 +258,8 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .chipbtn{cursor:pointer;border:0;font:inherit}
 .pchip .undo{opacity:.6;margin-left:2px}
 #cxPaid[hidden],#cxFree[hidden]{display:none}
+
+/* login: mobile / email */
+.lgtabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 8px}
+.lgtabs label{justify-content:center}
+#emailForm[hidden],#phoneForm[hidden]{display:none}

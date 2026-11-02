@@ -57,3 +57,4 @@ jobs:
         run: |
           supabase functions deploy sms-hook --project-ref "$PROJECT_REF" --no-verify-jwt
           supabase functions deploy send-pass --project-ref "$PROJECT_REF"
+          supabase functions deploy email-otp --project-ref "$PROJECT_REF" --no-verify-jwt

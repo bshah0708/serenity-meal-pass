@@ -169,10 +169,12 @@
     auth: {
       onAuthStateChange(cb) { authCb = cb; setTimeout(() => cb("INITIAL_SESSION", session), 0); return { data: { subscription: { unsubscribe() {} } } }; },
       async signInWithOtp() { return { error: null }; },
-      async verifyOtp({ token }) { if (token !== "123456") return { error: { message: "Token has expired or is invalid" } }; session = { user: me }; setTimeout(() => authCb("SIGNED_IN", session), 0); return { data: session, error: null }; },
+      async verifyOtp({ token, email }) { if (token !== "123456") return { error: { message: "Token has expired or is invalid" } };
+        if (email) { me.id = "u-mail"; me.phone = null; me.email = email; if (!T.profiles.some(x => x.id === "u-mail")) T.profiles.push({ id: "u-mail", phone: null, email, name: null, block: null, flat_no: null }); }
+        session = { user: me }; setTimeout(() => authCb("SIGNED_IN", session), 0); return { data: session, error: null }; },
       async signOut() { session = null; authCb("SIGNED_OUT", null); return { error: null }; },
     },
-    functions: { invoke: async () => ({ data: { sent: true, to: "x@example.com", passes: 1 }, error: null }) },
+    functions: { invoke: async (name, o) => { window.__invoked = (window.__invoked || []).concat([[name, o && o.body]]); return name === "email-otp" ? { data: { sent: true }, error: null } : { data: { sent: true, to: "x@example.com", passes: 1 }, error: null }; } },
     channel() { const c = { on() { return c; }, subscribe() { return c; } }; return c; },
     removeChannel() {},
   }) };

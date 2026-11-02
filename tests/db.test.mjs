@@ -12,7 +12,7 @@ const ok = (m) => console.log("  ✓ " + m);
 await db.exec(`
   create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
   create schema auth;
-  create table auth.users (id uuid primary key default gen_random_uuid(), phone text unique);
+  create table auth.users (id uuid primary key default gen_random_uuid(), phone text unique, email text unique);
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema auth to authenticated, anon; grant usage on schema public to authenticated, anon;
   grant execute on function auth.uid() to authenticated, anon;
@@ -219,6 +219,16 @@ r = await as(asha, "select count(*)::int n from audit_log"); assert.equal(r.rows
 await fails(akash, "insert into audit_log(action, reason) values ('x','fake entry')", [], /permission denied|row-level/); ok("audit trail cannot be written directly");
 await fails(akash, "delete from audit_log", [], /permission denied|row-level/).catch(async () => { r = await db.query("select count(*)::int n from audit_log"); assert.ok(r.rows[0].n > 0); });
 r = await db.query("select count(*)::int n from audit_log"); assert.ok(r.rows[0].n >= 5); ok("audit trail cannot be deleted");
+
+// --- email login residents ---
+const meena = (await db.query("insert into auth.users(email) values ('Meena@Example.com') returning id")).rows[0].id;
+r = await as(meena, "select phone, email from profiles where id=$1", [meena]);
+assert.equal(r.rows[0].phone, null); assert.equal(r.rows[0].email, "meena@example.com"); ok("email-login account gets a profile with its email");
+await fails(meena, "update profiles set mobile='12345' where id=auth.uid()", [], /mobile_check/); ok("typed mobile must be a valid 10-digit number");
+await as(meena, "update profiles set name='Meena Desai', block='B', flat_no='204', mobile='9811122233' where id=auth.uid()");
+const dB = (await as(akash, "select * from create_booking($1,$2,1,0,'physical','Meena Desai','9811122233',null,'B','204')", [evC, [sC]])).rows[0];
+assert.equal(dB.user_id, meena); ok("desk booking links to an email-login resident by flat + typed mobile");
+r = await as(meena, "select count(*)::int n from bookings"); assert.equal(r.rows[0].n, 1); ok("…who then sees it (and only it)");
 
 // --- revoke ---
 await fails(biren, "select revoke_committee($1,'')", [akash], /reason/);

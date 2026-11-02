@@ -98,6 +98,12 @@ Both also run automatically whenever the code changes.
 If something is wrong, the committee screen now shows the exact reason (wrong key, Gmail login refused, domain not verified).
 Without email, everything else works; committee members send passes on WhatsApp.
 
+### Email login (works once the Gmail secrets above are set)
+Residents can tap **✉️ Email** on the login screen and get a 6-digit code by email instead of SMS.
+The `email-otp` function creates the account and sends the code through the same Gmail.
+In Supabase → **Authentication → Sign In / Providers → Email** must be **enabled** (it is by default).
+Limits: 3 codes per email per 15 minutes, 15 per device per hour.
+
 ## 8. First login and committee
 
 1. Open the site and log in with **9724212198** — this number becomes **Super admin** automatically (set in `supabase/migrations/…_init.sql`, setting `super_admin_phone`).

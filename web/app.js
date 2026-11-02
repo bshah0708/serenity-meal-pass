@@ -208,7 +208,31 @@ function subscribeLive() {
 }
 
 /* ───────────── login (mobile + OTP) ───────────── */
-let otpPhone = "", resendT = 0;
+let otpPhone = "", otpEmail = "", loginBy = "phone", resendT = 0;
+function setLoginBy(v) {
+  loginBy = v; $("#phoneForm").hidden = v !== "phone"; $("#emailForm").hidden = v !== "email"; $("#otpForm").hidden = true;
+  $("#lgHint").textContent = v === "email" ? "Log in with your email. We'll email you a 6-digit code — use this if the SMS code does not arrive." : "Log in with your mobile number. We'll send a 6-digit code by SMS.";
+  (v === "email" ? $("#lgEmail") : $("#lgPhone")).focus();
+}
+$$("input[name=lgBy]").forEach(r => r.onchange = () => setLoginBy(r.value));
+async function sendEmailCode(email) {
+  const { data, error } = await sb.functions.invoke("email-otp", { body: { email } });
+  if (!error && data && data.sent) return null;
+  let m = "Could not send the email. Please try again."; try { const j = await error.context.json(); m = j.error || m; } catch (e) {}
+  return m;
+}
+$("#emailForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const m = $("#lgEmail").value.trim().toLowerCase(), err = $("#lgErrE"); err.textContent = "";
+  if (!validEmail(m)) { err.textContent = "Enter a valid email address."; return; }
+  const btn = $("#lgSendE"); btn.disabled = true; btn.textContent = "Sending…";
+  const fail = await sendEmailCode(m);
+  btn.disabled = false; btn.textContent = "Email me a code";
+  if (fail) { err.textContent = fail; return; }
+  otpEmail = m; $("#lgTo").textContent = m; $("#lgSpam").hidden = false;
+  $("#emailForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").value = ""; $("#lgOtp").focus();
+  startResendTimer();
+});
 function showLogin() {
   $("#login").hidden = false; $("#resident").hidden = true; $("#admin").hidden = true;
   $("#logout").hidden = true; $("#meBtn").hidden = true; $("#modeSwitch").hidden = true; $("#roleBadge").hidden = true;
@@ -221,8 +245,8 @@ $("#phoneForm").addEventListener("submit", async e => {
   const { error } = await sb.auth.signInWithOtp({ phone: "+91" + n });
   btn.disabled = false; btn.textContent = "Send code";
   if (error) { err.textContent = /rate|security purposes/i.test(error.message) ? "Please wait a minute before asking for another code."
-    : /sms|provider|twilio|hook/i.test(error.message) ? "SMS code could not be sent — the society's SMS service is not active yet. Please contact the committee (" + ((S.settings.desk || {}).contact || "committee desk") + ")." : errMsg(error); return; }
-  otpPhone = n; $("#lgTo").textContent = "+91 " + n.slice(0, 5) + " " + n.slice(5);
+    : /sms|provider|twilio|hook/i.test(error.message) ? "SMS code could not be sent right now. Please use the ✉️ Email option above to log in." : errMsg(error); return; }
+  otpPhone = n; $("#lgTo").textContent = "+91 " + n.slice(0, 5) + " " + n.slice(5); $("#lgSpam").hidden = true;
   $("#phoneForm").hidden = true; $("#otpForm").hidden = false; $("#lgOtp").value = ""; $("#lgOtp").focus();
   startResendTimer();
 });
@@ -230,25 +254,30 @@ function startResendTimer() {
   let s = 60; const b = $("#lgResend"); b.disabled = true; clearInterval(resendT);
   resendT = setInterval(() => { s--; b.textContent = s > 0 ? `Resend code in ${s}s` : "Resend code"; if (s <= 0) { b.disabled = false; clearInterval(resendT); } }, 1000);
 }
-$("#lgResend").onclick = async () => { const { error } = await sb.auth.signInWithOtp({ phone: "+91" + otpPhone }); if (error) $("#lgErr2").textContent = errMsg(error); else { toast("New code sent"); startResendTimer(); } };
-$("#lgChange").onclick = () => { $("#otpForm").hidden = true; $("#phoneForm").hidden = false; $("#lgPhone").focus(); };
+$("#lgResend").onclick = async () => {
+  if (loginBy === "email") { const fail = await sendEmailCode(otpEmail); if (fail) $("#lgErr2").textContent = fail; else { toast("New code emailed"); startResendTimer(); } return; }
+  const { error } = await sb.auth.signInWithOtp({ phone: "+91" + otpPhone }); if (error) $("#lgErr2").textContent = errMsg(error); else { toast("New code sent"); startResendTimer(); } };
+$("#lgChange").onclick = () => setLoginBy(loginBy);
 $("#lgOtp").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6); if (e.target.value.length === 6) $("#otpForm").requestSubmit(); });
 $("#otpForm").addEventListener("submit", async e => {
   e.preventDefault();
   const code = $("#lgOtp").value, err = $("#lgErr2"); err.textContent = "";
-  if (!/^\d{6}$/.test(code)) { err.textContent = "Enter the 6-digit code from the SMS."; return; }
+  if (!/^\d{6}$/.test(code)) { err.textContent = "Enter the 6-digit code."; return; }
   const btn = $("#lgVerify"); btn.disabled = true; btn.textContent = "Checking…";
-  const { error } = await sb.auth.verifyOtp({ phone: "+91" + otpPhone, token: code, type: "sms" });
+  let { error } = loginBy === "email" ? await sb.auth.verifyOtp({ email: otpEmail, token: code, type: "email" }) : await sb.auth.verifyOtp({ phone: "+91" + otpPhone, token: code, type: "sms" });
+  if (error && loginBy === "email") ({ error } = await sb.auth.verifyOtp({ email: otpEmail, token: code, type: "magiclink" }));
   btn.disabled = false; btn.textContent = "Verify & log in";
-  if (error) err.textContent = /expired|invalid/i.test(error.message) ? "That code is wrong or has expired. Check the SMS or resend." : errMsg(error);
+  if (error) err.textContent = /expired|invalid/i.test(error.message) ? `That code is wrong or has expired. Check the ${loginBy === "email" ? "email" : "SMS"} or resend.` : errMsg(error);
 });
 $("#logout").onclick = async () => { await sb.auth.signOut(); location.hash = ""; location.reload(); };
 
 /* ───────────── resident: account / profile ───────────── */
-function profileComplete() { const p = S.profile || {}; return !!(p.name && p.block && p.flat_no && p.email); }
+const byEmail = () => !!(S.user && !S.user.phone && S.user.email);
+const myMobile = () => { const p = S.profile || {}; return String(p.phone || p.mobile || (S.user && S.user.phone) || "").slice(-10); };
+function profileComplete() { const p = S.profile || {}; return !!(p.name && p.block && p.flat_no && p.email && (p.phone || p.mobile || !byEmail())); }
 function renderAccount() {
   const box = $("#acctBox"), pf = S.profile || {};
-  const phone10 = String(pf.phone || S.user.phone || "").slice(-10);
+  const phone10 = myMobile();
   const me = $("#meBtn");
   if (profileComplete() && !S.editProfile) {
     me.textContent = pf.name.trim().charAt(0).toUpperCase(); me.hidden = false;
@@ -261,8 +290,10 @@ function renderAccount() {
     <div class="grid2">
       <div class="field"><label for="pfName">Full name <span class="gu">નામ</span></label><input id="pfName" type="text" maxlength="60" value="${esc(pf.name || "")}" autocomplete="name"></div>
       <div class="field"><span class="lab">Flat <span class="gu">ફ્લેટ</span></span><div class="row" style="flex-wrap:nowrap"><select id="pfBlock" aria-label="Block" style="width:84px"><option value="">–</option>${blockOpts()}</select><select id="pfFlat" aria-label="Flat number">${flatOpts(pf.block || "", pf.flat_no)}</select></div></div>
-      <div class="field"><label>Mobile (verified)</label><input type="text" value="${esc(phone10)}" disabled></div>
-      <div class="field"><label for="pfMail">Email <span class="gu">ઈમેલ</span></label><input id="pfMail" type="email" maxlength="80" value="${esc(pf.email || "")}" autocomplete="email"></div>
+      ${byEmail() ? `<div class="field"><label for="pfMob">Mobile number <span class="gu">મોબાઇલ</span></label><input id="pfMob" type="tel" inputmode="numeric" maxlength="10" value="${esc(pf.mobile || "")}" placeholder="98xxxxxxxx" autocomplete="tel-national"></div>
+      <div class="field"><label>Email (verified login)</label><input id="pfMail" type="email" value="${esc(pf.email || S.user.email || "")}" disabled></div>`
+      : `<div class="field"><label>Mobile (verified)</label><input type="text" value="${esc(phone10)}" disabled></div>
+      <div class="field"><label for="pfMail">Email <span class="gu">ઈમેલ</span></label><input id="pfMail" type="email" maxlength="80" value="${esc(pf.email || "")}" autocomplete="email"></div>`}
     </div><div class="err" id="pfErr"></div>
     <div class="row">${profileComplete() ? `<button class="btn" type="button" id="pfCancel">Cancel</button>` : ""}<button class="btn primary" type="button" id="pfSave">Save my details</button></div></div>`;
   if (pf.block) $("#pfBlock").value = pf.block;
@@ -273,14 +304,16 @@ function renderAccount() {
     if (!name) return err.textContent = "Enter your name.";
     const fe = validFlat(blk, no); if (fe) return err.textContent = fe;
     if (!validEmail(mail)) return err.textContent = "Enter a valid email. Passes are sent to it.";
-    const { data, error } = await sb.from("profiles").update({ name, block: blk, flat_no: no, email: mail }).eq("id", S.user.id).select().single();
+    const upd = { name, block: blk, flat_no: no, email: mail };
+    if (byEmail()) { const mob = $("#pfMob").value.replace(/\D/g, "").slice(-10); if (!/^[6-9]\d{9}$/.test(mob)) return err.textContent = "Enter your 10-digit mobile number (for WhatsApp passes)."; upd.mobile = mob; }
+    const { data, error } = await sb.from("profiles").update(upd).eq("id", S.user.id).select().single();
     if (error) return err.textContent = errMsg(error);
     S.profile = data; S.editProfile = false; toast("Details saved"); render();
   };
 }
 
 function profileSheet() {
-  const pf = S.profile || {}, phone10 = String(pf.phone || S.user.phone || "").slice(-10);
+  const pf = S.profile || {}, phone10 = myMobile();
   openSheet(`<header><div><div class="muted small gu">મારી વિગતો</div><h2>My profile</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
     <div class="acct"><div class="av">${esc((pf.name || "?").trim().charAt(0).toUpperCase())}</div>
       <div style="min-width:0"><b style="font-size:1.05rem">${esc(pf.name || "")}</b>
@@ -422,7 +455,7 @@ function bookingForm(ev, asAdmin, preset) {
   } else {
     $("#fBlock", o).value = pf.block; $("#fFlat", o).innerHTML = flatOpts(pf.block, pf.flat_no);
     $("#fBlock", o).disabled = true; $("#fFlat", o).disabled = true;
-    $("#fMob", o).value = String(pf.phone || "").slice(-10); $("#fName", o).value = pf.name || ""; $("#fMail", o).value = pf.email || "";
+    $("#fMob", o).value = myMobile(); $("#fName", o).value = pf.name || ""; $("#fMail", o).value = pf.email || "";
   }
   $("#fCancel", o).onclick = closeSheet;
   const chosen = () => multi ? $$(".sesslist input:checked", o).map(i => i.value) : ss.map(s => s.id);
@@ -698,7 +731,10 @@ async function emailPass(b, btn, errEl) {
     let m = "Could not send the email."; try { const j = await error.context.json(); m = j.error || m; } catch (e) {}
     if (btn) { btn.disabled = false; btn.textContent = t; } if (errEl) errEl.textContent = m; else toast(m); return false;
   }
-  if (btn) btn.textContent = "Email sent"; toast("Passes emailed to " + data.to); reloadSoon(); return true;
+  if (btn) btn.textContent = "Email sent"; toast("Passes emailed to " + data.to);
+  const now = new Date().toISOString(); b.email_sent_at = now; const sb2 = S.bookings.find(x => x.id === b.id); if (sb2) sb2.email_sent_at = now;
+  $$(`[data-sentline="${b.id}"]`).forEach(el => el.innerHTML = sentLine(sb2 || b));
+  reloadSoon(); return true;
 }
 let logoImg = null;
 const loadLogo = () => logoImg || (logoImg = new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = "assets/logo.png"; }));
@@ -730,6 +766,7 @@ async function passPng(b, n) {
   return new Promise(r => cv.toBlob(r, "image/png"));
 }
 function downloadBlob(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
+const sentLine = b => `WhatsApp: ${b.wa_sent_at ? "opened " + fdt(b.wa_sent_at) : "not sent yet"} · Email: ${b.email_sent_at ? "✓ sent " + fdt(b.email_sent_at) : "not sent yet"}`;
 function passSheet(b, focusSel) {
   if (!b) return;
   const st = bStatus(b);
@@ -749,11 +786,11 @@ function passSheet(b, focusSel) {
     <div class="panel"><h3 style="margin-bottom:8px">Send passes</h3>
       <div class="row"><a class="btn primary" id="psWa" href="${esc(waLink(b))}" target="_blank" rel="noopener">WhatsApp to ${esc(b.mobile)}</a>
         <button class="btn" type="button" id="psMail"${b.email ? "" : " disabled"}>Email ${b.adults + b.children} pass${b.adults + b.children > 1 ? "es" : ""}</button></div>
-      <div class="small muted" style="margin-top:8px">WhatsApp: ${b.wa_sent_at ? "opened " + fdt(b.wa_sent_at) : "not sent yet"} · Email: ${b.email_sent_at ? "sent " + fdt(b.email_sent_at) : "not sent yet"}</div>
+      <div class="small muted" style="margin-top:8px" data-sentline="${b.id}">${sentLine(b)}</div>
       <div class="err" id="psErr"></div></div>
     <div class="row" style="justify-content:flex-end">${st.k === "pending" || st.k === "upi" ? `<button class="btn primary" type="button" id="psPay">Mark paid</button>` : ""}<button class="btn x2" type="button">Close</button></div>`, true);
   $(".x2", o).onclick = closeSheet;
-  $("#psWa", o).addEventListener("click", () => sb.rpc("mark_sent", { p_booking: b.id, p_channel: "whatsapp" }).then(reloadSoon));
+  $("#psWa", o).addEventListener("click", () => { b.wa_sent_at = b.wa_sent_at || new Date().toISOString(); $$(`[data-sentline="${b.id}"]`).forEach(el => el.innerHTML = sentLine(b)); sb.rpc("mark_sent", { p_booking: b.id, p_channel: "whatsapp" }).then(reloadSoon); });
   $$("[data-img]", o).forEach(x => x.onclick = async () => downloadBlob(await passPng(b, +x.dataset.img), `Serenity_Space_Pass_${tok(b, +x.dataset.img)}.png`));
   if ($("#psPay", o)) $("#psPay", o).onclick = () => payForm(b);
   $("#psMail", o).onclick = () => emailPass(b, $("#psMail", o), $("#psErr", o));

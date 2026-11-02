@@ -31,10 +31,17 @@ secrets = "env(SEND_SMS_HOOK_SECRETS)"
 sms_sent = 60
 
 [auth.email]
+# accounts for email login are created by the email-otp function (admin API), not by open sign-up
 enable_signup = false
+otp_length = 6
+otp_expiry = 3600
 
 [functions.sms-hook]
 verify_jwt = false
 
 [functions.send-pass]
 verify_jwt = true
+
+# email login codes (people are not logged in yet; the function has its own rate limits)
+[functions.email-otp]
+verify_jwt = false
