@@ -139,6 +139,27 @@ await fails(null, "select count(*) from bookings", [], /permission denied/); ok(
 r = await as(asha, "select count(*)::int n from app_settings where key='super_admin_phone'"); assert.equal(r.rows[0].n, 0); ok("super admin number hidden from residents");
 r = await as(asha, "update app_settings set value='{\"enabled\":true}' where key='upi' returning key"); assert.equal(r.rows.length, 0); ok("residents cannot change settings");
 
+// --- who handled the money ---
+await db.exec("reset role"); await db.query("update events set capacity = 100 where id=$1", [ev]);
+const nb = async () => (await as(asha, "select * from create_booking($1,$2,1,0,'mobile','Asha Patel','9800000001','asha@example.com')", [ev, [s2]])).rows[0];
+const p1 = await nb(), p2 = await nb(), p3 = await nb(), p4 = await nb();
+await fails(asha, "select record_payment($1,'cash',250)", [p1.id], /Committee only/); ok("residents cannot record payments");
+await db.exec("reset role"); await db.query("update profiles set name='Biren Shah' where id=$1", [biren]); await db.query("update profiles set name='Akash' where id=$1", [akash]);
+r = await as(akash, "select record_payment($1,'cash',$2,'R-101',$3) j", [p1.id, p1.amount, biren]);
+assert.equal(r.rows[0].j.collected_by, "Biren Shah"); assert.equal(r.rows[0].j.marked_by, "Akash"); ok("cash: collected by Biren, marked paid by Akash");
+r = await as(akash, "select record_payment($1,'cash',$2,null,null,'Ramesh (volunteer)') j", [p2.id, p2.amount]);
+assert.equal(r.rows[0].j.collected_by, "Ramesh (volunteer)"); ok("cash collected by a volunteer without login (typed name)");
+await fails(akash, "select record_payment($1,'cash',$2,null,$3)", [p3.id, p3.amount, ravi], /committee member/); ok("cash collector must be a committee member");
+r = await as(akash, "select record_payment($1,'upi',$2,'412345678999') j", [p3.id, p3.amount]);
+assert.equal(r.rows[0].j.collected_by, null); assert.equal(r.rows[0].j.marked_by, "Akash"); ok("UPI: records who verified and marked it paid");
+await fails(akash, "select record_payment($1,'other',$2)", [p4.id, p4.amount], /how it was paid/); ok("'Other' needs a note");
+await as(akash, "select record_payment($1,'other',$2,null,null,null,'Cheque 004512 HDFC')", [p4.id, p4.amount]);
+r = await as(asha, "select pay_mode, pay_note, collected_by_name, paid_by_name from bookings where id=$1", [p1.id]);
+assert.equal(r.rows[0].collected_by_name, "Biren Shah"); ok("resident sees who received the cash on their own booking");
+await as(akash, "select undo_paid($1)", [p1.id]);
+r = await as(akash, "select status, collected_by_name, paid_by_name from bookings where id=$1", [p1.id]);
+assert.equal(r.rows[0].status, "pending"); assert.equal(r.rows[0].collected_by_name, null); ok("undo paid clears who collected / marked");
+
 // --- revoke ---
 await as(biren, "select revoke_committee($1)", [akash]);
 r = await as(akash, "select count(*)::int n from bookings"); assert.equal(r.rows[0].n, 0); ok("revoked member loses access to others' bookings");

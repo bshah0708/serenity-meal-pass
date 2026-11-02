@@ -94,7 +94,16 @@
     submit_upi_ref(a) { B(a.p_booking).upi_ref = a.p_ref; },
     cancel_booking(a) { B(a.p_booking).status = "cancelled"; },
     mark_paid(a) { Object.assign(B(a.p_booking), { status: "paid", pay_mode: a.p_mode, paid_amount: a.p_amount, paid_at: new Date().toISOString() }); },
-    undo_paid(a) { Object.assign(B(a.p_booking), { status: "pending", pay_mode: null, paid_at: null }); },
+    record_payment(a) {
+      const nm = id => { const p = T.profiles.find(x => x.id === id); return p ? p.name : null; };
+      if (!staff()) throw new Error("Committee only");
+      if (a.p_mode === "other" && !a.p_note) throw new Error('For "Other", write how it was paid (e.g. cheque no.)');
+      const c = a.p_mode === "cash" ? (a.p_collected_name || nm(a.p_collected_by || me.id)) : null;
+      Object.assign(B(a.p_booking), { status: "paid", pay_mode: a.p_mode, paid_amount: a.p_mode === "waived" ? 0 : a.p_amount, pay_ref: a.p_ref, pay_note: a.p_note, paid_at: new Date().toISOString(),
+        paid_by: me.id, paid_by_name: nm(me.id), collected_by: a.p_mode === "cash" && !a.p_collected_name ? (a.p_collected_by || me.id) : null, collected_by_name: c });
+      return { marked_by: nm(me.id), collected_by: c };
+    },
+    undo_paid(a) { Object.assign(B(a.p_booking), { status: "pending", pay_mode: null, paid_at: null, paid_by_name: null, collected_by_name: null, pay_ref: null, pay_note: null }); },
     restore_booking(a) { B(a.p_booking).status = "pending"; },
     mark_sent(a) { const b = B(a.p_booking); if (a.p_channel === "print") b.printed_at = new Date().toISOString(); if (a.p_channel === "whatsapp") b.wa_sent_at = new Date().toISOString(); },
     event_availability(a) { const e = T.events.find(x => x.id === a.p_event); return { capacity: e.capacity, booked: T.bookings.filter(b => b.event_id === e.id).reduce((s, b) => s + b.adults + b.children, 0) }; },

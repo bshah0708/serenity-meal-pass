@@ -79,11 +79,26 @@ function priceFor(ev, nSess, a, c) {
 }
 function bStatus(b) {
   if (b.status === "cancelled") return { k: "cancelled", label: "Cancelled", cls: "bad" };
-  if (b.status === "paid") return +b.amount > 0 ? { k: "paid", label: "Paid" + (b.pay_mode ? " · " + b.pay_mode.toUpperCase() : ""), cls: "ok" } : { k: "free", label: "Free", cls: "ok" };
+  if (b.status === "paid") return +b.amount > 0 ? { k: "paid", label: "Paid" + (b.pay_mode ? " · " + (MODE[b.pay_mode] || b.pay_mode) : ""), cls: "ok" } : { k: "free", label: "Free", cls: "ok" };
   if (b.upi_ref) return { k: "upi", label: "UPI ref – verify", cls: "info" };
   return { k: "pending", label: "Payment pending", cls: "warn" };
 }
 const active = b => b.status !== "cancelled";
+const MODE = { cash: "Cash", upi: "UPI", other: "Other", waived: "Waived" };
+/* one line: who handled the money — "Cash · received by Biren · marked by Akash" */
+function payWho(b, short) {
+  if (b.status !== "paid" || !b.pay_mode) return "";
+  const m = MODE[b.pay_mode] || b.pay_mode, marked = b.paid_by_name || "";
+  if (b.pay_mode === "cash") return `${m} · received by ${b.collected_by_name || marked || "—"}${!short && marked && marked !== b.collected_by_name ? " · marked by " + marked : ""}`;
+  if (b.pay_mode === "waived") return +b.amount > 0 ? `Waived${marked ? " by " + marked : ""}` : "";
+  return `${m}${b.pay_mode === "other" && b.pay_note ? " (" + b.pay_note + ")" : ""}${marked ? " · marked by " + marked : ""}`;
+}
+const meName = () => { const p = S.profile || {}; return (p.name || "").trim() || String(p.phone || "").slice(-10) || "you"; };
+function collectorOpts(cur) {
+  const list = (S.staffList || []).filter(x => x.active).map(x => ({ id: x.user_id, name: ((S.profiles[x.user_id] || {}).name || "").trim() || String((S.profiles[x.user_id] || {}).phone || "").slice(-10) || "Committee member" }))
+    .sort((a, z) => (z.id === S.user.id) - (a.id === S.user.id) || a.name.localeCompare(z.name));
+  return list.map(x => `<option value="${x.id}"${x.id === cur ? " selected" : ""}>${esc(x.name)}${x.id === S.user.id ? " (me)" : ""}</option>`).join("") + `<option value="__other">Someone else (type name)…</option>`;
+}
 
 /* ───────────── sheets ───────────── */
 function openSheet(html, wide) {
@@ -471,7 +486,10 @@ function paySection(b) {
   return `<div class="paysec">
     <div class="payrow"><span>Amount</span><b class="num">${+b.amount > 0 ? inr(b.amount) : "Free"}</b></div>
     <div class="payrow"><span>Status</span><span class="chip ${st.cls}">${esc(st.label)}</span></div>
-    ${b.paid_at && b.status === "paid" && +b.amount > 0 ? `<div class="payrow"><span>Paid on</span><span>${fdt(b.paid_at)}</span></div>` : ""}
+    ${b.paid_at && b.status === "paid" && +b.amount > 0 ? `<div class="payrow"><span>Paid on</span><span>${fdt(b.paid_at)}</span></div>
+      ${b.pay_mode === "cash" && b.collected_by_name ? `<div class="payrow"><span>Cash received by</span><span>${esc(b.collected_by_name)}</span></div>` : ""}
+      ${b.pay_mode !== "cash" && b.paid_by_name ? `<div class="payrow"><span>${b.pay_mode === "upi" ? "UPI verified by" : "Recorded by"}</span><span>${esc(b.paid_by_name)}</span></div>` : ""}
+      ${b.pay_ref ? `<div class="payrow"><span>${b.pay_mode === "upi" ? "UTR" : "Receipt no."}</span><span class="mono">${esc(b.pay_ref)}</span></div>` : ""}` : ""}
     ${b.status === "pending" ? `<div class="small muted"><span class="gu">કમિટી ડેસ્ક પર ચૂકવો</span> · Pay at the committee desk${(S.settings.upi || {}).enabled ? " or by UPI" : ""}.${desk.place ? " " + esc(desk.place) + "." : ""}${desk.contact ? " Contact " + esc(desk.contact) + "." : ""}</div>` : ""}
     ${upiBlock(b)}
   </div>`;
@@ -652,6 +670,12 @@ function passSheet(b) {
     ${passCard(b)}
     <div class="row small">${persons(b).map(x => `<button class="btn sm" type="button" data-img="${x.n}">Image · ${x.type} ${x.n}</button>`).join("")}</div>
     <div class="small muted">Mobile <span class="mono">${esc(b.mobile)}</span> · Email ${esc(b.email || "—")}${b.upi_ref ? ` · UTR <span class="mono">${esc(b.upi_ref)}</span>` : ""}</div>
+    ${b.status === "paid" && +b.amount > 0 ? `<div class="panel"><h3 style="margin-bottom:8px">Payment</h3><dl class="kv">
+      <dt>Amount</dt><dd class="num">${inr(b.paid_amount != null ? b.paid_amount : b.amount)} · ${esc(MODE[b.pay_mode] || b.pay_mode || "")}</dd>
+      ${b.pay_mode === "cash" ? `<dt>Cash received by</dt><dd><b>${esc(b.collected_by_name || "—")}</b></dd>` : ""}
+      <dt>Marked paid by</dt><dd>${esc(b.paid_by_name || "—")} · ${fdt(b.paid_at)}</dd>
+      ${b.pay_ref ? `<dt>${b.pay_mode === "upi" ? "UTR" : "Receipt no."}</dt><dd class="mono">${esc(b.pay_ref)}</dd>` : ""}
+      ${b.pay_note ? `<dt>${b.pay_mode === "waived" ? "Reason" : "Details"}</dt><dd>${esc(b.pay_note)}</dd>` : ""}</dl></div>` : ""}
     <div class="panel"><h3 style="margin-bottom:8px">Send passes</h3>
       <div class="row"><a class="btn primary" id="psWa" href="${esc(waLink(b))}" target="_blank" rel="noopener">WhatsApp to ${esc(b.mobile)}</a>
         <button class="btn" type="button" id="psMail"${b.email ? "" : " disabled"}>Email ${b.adults + b.children} pass${b.adults + b.children > 1 ? "es" : ""}</button></div>
@@ -675,13 +699,17 @@ function eventSelect(selEl) {
 }
 function evStats(ev) {
   const bs = S.bookings.filter(b => b.event_id === ev.id), act = bs.filter(active);
-  const r = { passes: act.length, adults: 0, children: 0, billed: 0, collected: 0, pending: 0, upiVerify: 0, cost: 0, cancelled: bs.length - act.length, cash: 0, upi: 0, printed: 0, bySess: {}, byBlock: {} };
+  const r = { passes: act.length, adults: 0, children: 0, billed: 0, collected: 0, pending: 0, upiVerify: 0, cost: 0, cancelled: bs.length - act.length, cash: 0, upi: 0, other: 0, printed: 0, byCollector: {}, bySess: {}, byBlock: {} };
   (ev.sessions || []).forEach(s => r.bySess[s.id] = { a: 0, c: 0, served: 0 });
   BLOCKS.forEach(b => r.byBlock[b] = { passes: 0, persons: 0, amount: 0, pending: 0 });
   act.forEach(b => {
     const st = bStatus(b);
     r.adults += b.adults; r.children += b.children; r.billed += +b.amount; r.cost += +b.cost || 0;
-    if (st.k === "paid") { const amt = +(b.paid_amount != null ? b.paid_amount : b.amount); r.collected += amt; if (b.pay_mode === "upi") r.upi += amt; else r.cash += amt; }
+    if (st.k === "paid") { const amt = +(b.paid_amount != null ? b.paid_amount : b.amount); r.collected += amt;
+      if (b.pay_mode === "upi") r.upi += amt; else if (b.pay_mode === "other") r.other += amt; else if (b.pay_mode === "cash") r.cash += amt;
+      if (amt > 0) { const key = b.pay_mode === "cash" ? (b.collected_by_name || b.paid_by_name || "Not recorded") : (b.paid_by_name || "Not recorded");
+        const c = r.byCollector[key] = r.byCollector[key] || { name: key, cash: 0, cashN: 0, upi: 0, upiN: 0, other: 0, otherN: 0 };
+        if (b.pay_mode === "cash") { c.cash += amt; c.cashN++; } else if (b.pay_mode === "upi") { c.upi += amt; c.upiN++; } else { c.other += amt; c.otherN++; } } }
     if (st.k === "pending" || st.k === "upi") { r.pending += +b.amount; r.byBlock[b.block].pending += +b.amount; }
     if (st.k === "upi") r.upiVerify++;
     if (b.printed_at) r.printed++;
@@ -906,7 +934,7 @@ function renderBookings() {
     <td data-l="pno" class="mono">${esc(b.pass_no)}</td><td data-l="flat"><b>${esc(b.flat)}</b></td><td data-l="name" class="tw">${esc(b.name)}${b.by_committee ? ' <span class="muted small">(desk)</span>' : ""}</td><td data-l="mob" class="mono">${esc(b.mobile)}</td>
     <td data-l="sess" class="tw small">${esc(sessLabel(ev, b.sessions))} · ${b.adults}A ${b.children}C</td><td data-l="a" class="r num">${b.adults}</td><td data-l="c" class="r num">${b.children}</td>
     <td data-l="amt" class="r num">${+b.amount > 0 ? inr(b.amount) : "Free"}${+b.late_fee ? `<div class="small muted">incl. late ${inr(b.late_fee)}</div>` : ""}</td>
-    <td data-l="status"><span class="chip ${st.cls}">${esc(st.label)}</span>${b.upi_ref ? `<div class="small mono muted">UTR ${esc(b.upi_ref)}</div>` : ""}${b.paid_at && st.k === "paid" ? `<div class="small muted">${fdt(b.paid_at)}</div>` : ""}</td>
+    <td data-l="status"><span class="chip ${st.cls}">${esc(st.label)}</span>${b.upi_ref ? `<div class="small mono muted">UTR ${esc(b.upi_ref)}</div>` : ""}${b.paid_at && st.k === "paid" ? `<div class="small muted">${fdt(b.paid_at)}</div>${payWho(b) ? `<div class="small who-l">${esc(payWho(b))}</div>` : ""}` : ""}</td>
     <td data-l="given">${(() => { const g = bookingGiven(b); return b.status === "cancelled" ? "—" : `<span class="chip ${g.cls}">🍽 ${g.label}</span>`; })()}</td>
     <td data-l="pass">${b.pass_type === "mobile" ? `<span class="small">📱 Mobile</span> <span class="small muted">${b.wa_sent_at ? "WA ✓ " : ""}${b.email_sent_at ? "Email ✓" : ""}${!b.wa_sent_at && !b.email_sent_at ? "Not sent" : ""}</span>` : `<span class="small">🖨️ Printed</span> <span class="small muted">${b.printed_at ? "Printed ✓" : "Not printed"}</span>`}</td>
     <td data-l="act"><div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-pass="${b.id}" type="button">Send / view</button>${st.k === "pending" || st.k === "upi" ? `<button class="btn sm primary" data-pay="${b.id}" type="button">Mark paid</button>` : ""}${st.k === "paid" ? `<button class="btn sm" data-unpay="${b.id}" type="button">Undo paid</button>` : ""}${st.k === "cancelled" ? `<button class="btn sm" data-restore="${b.id}" type="button">Restore</button>` : `<button class="btn sm danger" data-cancel="${b.id}" type="button">Cancel</button>`}</div></td>
@@ -928,10 +956,10 @@ function drawBulk() {
   const bs = ids.map(id => S.bookings.find(b => b.id === id)).filter(Boolean);
   const unpaid = bs.filter(b => ["pending", "upi"].includes(bStatus(b).k)), mail = bs.filter(b => active(b) && b.email);
   box.innerHTML = `<div class="bulk"><b>${ids.length} selected</b><span class="small" style="opacity:.8">${inr(unpaid.reduce((s, b) => s + +b.amount, 0))} unpaid</span><span style="flex:1"></span>
-    ${unpaid.length ? `<button class="btn sm" id="bPay" type="button">Mark ${unpaid.length} paid (cash)</button>` : ""}${mail.length ? `<button class="btn sm" id="bMail" type="button">Email ${mail.length}</button>` : ""}<button class="btn sm" id="bPrint" type="button">Print passes</button><button class="btn sm" id="bClr" type="button">Clear</button></div>`;
+    ${unpaid.length ? `<button class="btn sm" id="bPay" type="button">Mark ${unpaid.length} paid…</button>` : ""}${mail.length ? `<button class="btn sm" id="bMail" type="button">Email ${mail.length}</button>` : ""}<button class="btn sm" id="bPrint" type="button">Print passes</button><button class="btn sm" id="bClr" type="button">Clear</button></div>`;
   $("#bClr").onclick = () => { Object.keys(sel).forEach(k => delete sel[k]); renderBookings(); };
   $("#bPrint").onclick = () => printPasses(bs.filter(active));
-  if (unpaid.length) arm($("#bPay"), async () => { let n = 0; for (const b of unpaid) { const { error } = await sb.rpc("mark_paid", { p_booking: b.id, p_mode: "cash", p_amount: +b.amount, p_ref: null }); if (!error) n++; } toast(n + " marked paid"); reloadSoon(); }, "Confirm " + unpaid.length + " cash payments");
+  if (unpaid.length) $("#bPay").onclick = () => payForm(null, unpaid);
   if (mail.length) arm($("#bMail"), () => bulkEmail(mail, $("#bMail")), "Confirm: email " + mail.length);
 }
 async function bulkEmail(list, btn) {
@@ -939,19 +967,50 @@ async function bulkEmail(list, btn) {
   for (const b of list) { btn.textContent = `Sending ${ok + 1}/${list.length}…`; if (await emailPass(b)) ok++; else break; }
   toast(`${ok} of ${list.length} emailed`); btn.disabled = false; reloadSoon();
 }
-function payForm(b) {
-  if (!b) return;
-  const o = openSheet(`<header><div><div class="muted small">Record payment</div><h2>${esc(b.flat)} · ${esc(b.name)}</h2><div class="mono small muted">${esc(b.pass_no)}</div></div><button class="x" type="button" aria-label="Close">×</button></header>
-    <div class="grid2"><div class="field"><label for="pyAmt">Amount received</label><input id="pyAmt" type="number" min="0" value="${+b.amount}"></div>
-    <div class="field"><span class="lab">Mode</span><div class="seg"><label><input type="radio" name="pyM" value="cash"${b.upi_ref ? "" : " checked"}> Cash</label><label><input type="radio" name="pyM" value="upi"${b.upi_ref ? " checked" : ""}> UPI</label><label><input type="radio" name="pyM" value="waived"> Waived</label></div></div></div>
-    <div class="field"><label for="pyRef">Receipt no. / UTR</label><input id="pyRef" type="text" value="${esc(b.upi_ref || "")}"></div>
-    ${b.upi_ref ? `<div class="notice small" style="background:var(--info-soft);border:0">Resident submitted UTR <span class="mono">${esc(b.upi_ref)}</span> on ${fdt(b.upi_at)}. Check it in the bank statement before confirming.</div>` : ""}
+/* record a payment for one or many bookings: mode, amount, who received the cash / who marked it */
+function payForm(b, many) {
+  const list = many || [b]; if (!list[0]) return;
+  const one = list.length === 1, total = list.reduce((t, x) => t + +x.amount, 0), upiRef = one && list[0].upi_ref;
+  const o = openSheet(`<header><div><div class="muted small">Record payment</div><h2>${one ? esc(list[0].flat) + " · " + esc(list[0].name) : list.length + " bookings · " + inr(total)}</h2>${one ? `<div class="mono small muted">${esc(list[0].pass_no)}</div>` : ""}</div><button class="x" type="button" aria-label="Close">×</button></header>
+    <div class="field"><span class="lab">How was it paid? <span class="gu">ચુકવણી કેવી રીતે?</span></span>
+      <div class="seg paymode">${["cash", "upi", "other", "waived"].map(m => `<label><input type="radio" name="pyM" value="${m}"${(upiRef ? m === "upi" : m === "cash") ? " checked" : ""}> ${MODE[m]}</label>`).join("")}</div></div>
+    ${one ? `<div class="field"><label for="pyAmt">Amount received (₹)</label><input id="pyAmt" type="number" min="0" inputmode="numeric" value="${+list[0].amount}"></div>` : `<div class="notice small">Each booking is marked paid for its own amount (total ${inr(total)}).</div>`}
+    <div class="pm pm-cash"><div class="field"><label for="pyBy">Cash received by <span class="gu">રોકડ કોણે લીધી?</span></label><select id="pyBy">${collectorOpts(S.user.id)}</select></div>
+      <div class="field" id="pyNameF" hidden><label for="pyName">Name of the person who received the cash</label><input id="pyName" type="text" maxlength="60" placeholder="e.g. Ramesh Patel (volunteer, B-204)"></div></div>
+    <div class="pm pm-upi"><div class="field"><label for="pyUtr">UPI reference / UTR</label><input id="pyUtr" type="text" inputmode="numeric" maxlength="40" value="${esc(upiRef || "")}" placeholder="12-digit UTR from the bank app"></div>
+      ${upiRef ? `<div class="notice small" style="background:var(--info-soft);border:0">Resident submitted UTR <span class="mono">${esc(upiRef)}</span> on ${fdt(list[0].upi_at)}. Check it in the bank statement before confirming.</div>` : ""}</div>
+    <div class="pm pm-other"><div class="field"><label for="pyNote">How was it paid? (required)</label><input id="pyNote" type="text" maxlength="120" placeholder="e.g. Cheque 004512 HDFC / NEFT / adjusted in maintenance"></div></div>
+    <div class="pm pm-waived"><div class="field"><label for="pyWhy">Reason (optional)</label><input id="pyWhy" type="text" maxlength="120" placeholder="e.g. Volunteer / guest of society"></div></div>
+    <div class="pm pm-cash pm-other"><div class="field"><label for="pyRef">Receipt no. (optional)</label><input id="pyRef" type="text" maxlength="40"></div></div>
+    <div class="who small" id="pyWho"></div>
     <div class="err" id="pyErr"></div>
-    <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="pyC">Cancel</button><button class="btn primary" type="button" id="pyGo">Mark paid</button></div>`);
+    <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="pyC">Cancel</button><button class="btn primary" type="button" id="pyGo">${one ? "Mark paid" : "Mark " + list.length + " paid"}</button></div>`);
+  const mode = () => $("input[name=pyM]:checked", o).value;
+  const sync = () => {
+    const m = mode(), other = $("#pyBy", o).value === "__other"; $("#pyErr", o).textContent = "";
+    $$(".pm", o).forEach(x => x.hidden = !x.classList.contains("pm-" + m));
+    $("#pyNameF", o).hidden = !(m === "cash" && other);
+    const who = m === "cash" ? `<b>${esc(other ? ($("#pyName", o).value.trim() || "…") : $("#pyBy option:checked", o).textContent.replace(" (me)", ""))}</b> received the cash` : m === "upi" ? "UPI checked in the bank statement" : m === "other" ? "Paid by another method" : "No money collected";
+    $("#pyWho", o).innerHTML = `<svg class="ic sm"><use href="#i-user"/></svg><span>${who} · marked paid by <b>${esc(meName())}</b> · ${fdt(new Date().toISOString())}</span>`;
+  };
+  $$("input[name=pyM]", o).forEach(r => r.onchange = sync); $("#pyBy", o).onchange = sync; $("#pyName", o).oninput = sync; sync();
   $("#pyC", o).onclick = closeSheet;
   $("#pyGo", o).onclick = async () => {
-    const { error } = await sb.rpc("mark_paid", { p_booking: b.id, p_mode: $("input[name=pyM]:checked", o).value, p_amount: +$("#pyAmt", o).value || 0, p_ref: $("#pyRef", o).value.trim() || null });
-    if (error) $("#pyErr", o).textContent = errMsg(error); else { closeSheet(); toast("Marked paid"); reloadSoon(); }
+    const m = mode(), err = $("#pyErr", o), by = $("#pyBy", o).value, typed = $("#pyName", o).value.trim();
+    if (m === "cash" && by === "__other" && !typed) return err.textContent = "Type the name of the person who received the cash.";
+    if (m === "other" && !$("#pyNote", o).value.trim()) return err.textContent = "Write how it was paid (e.g. cheque number).";
+    const btn = $("#pyGo", o); btn.disabled = true; let n = 0, last = null;
+    for (const x of list) {
+      const amt = one ? (+$("#pyAmt", o).value || 0) : +x.amount;
+      const { error } = await sb.rpc("record_payment", { p_booking: x.id, p_mode: m, p_amount: amt,
+        p_ref: (m === "upi" ? $("#pyUtr", o).value : m === "waived" ? "" : $("#pyRef", o).value).trim() || null,
+        p_collected_by: m === "cash" && by !== "__other" ? by : null, p_collected_name: m === "cash" && by === "__other" ? typed : null,
+        p_note: (m === "other" ? $("#pyNote", o).value : m === "waived" ? $("#pyWhy", o).value : "").trim() || null });
+      if (error) { last = error; break; } n++;
+    }
+    btn.disabled = false;
+    if (last) { err.textContent = (n ? n + " marked paid, then: " : "") + errMsg(last); if (n) reloadSoon(); return; }
+    closeSheet(); toast(n === 1 ? "Marked paid" : n + " marked paid"); reloadSoon();
   };
 }
 
@@ -1120,12 +1179,24 @@ function renderReports() {
     <div class="panel" style="margin-top:12px"><h3 style="margin-bottom:8px">Summary</h3>
       <dl class="kv" style="max-width:460px">
         <dt>Passes / persons</dt><dd class="num">${r.passes} / ${r.persons} (${r.adults} A, ${r.children} C)</dd>
-        <dt>Billed</dt><dd class="num">${inr(r.billed)}</dd><dt>Collected</dt><dd class="num">${inr(r.collected)} (Cash ${inr(r.cash)}, UPI ${inr(r.upi)})</dd>
+        <dt>Billed</dt><dd class="num">${inr(r.billed)}</dd><dt>Collected</dt><dd class="num">${inr(r.collected)} (Cash ${inr(r.cash)}, UPI ${inr(r.upi)}${r.other ? ", Other " + inr(r.other) : ""})</dd>
         <dt>Pending</dt><dd class="num">${inr(r.pending)}</dd>${r.cost ? `<dt>Actual cost</dt><dd class="num">${inr(r.cost)}</dd><dt>Society subsidy</dt><dd class="num">${inr(r.subsidy)}</dd>` : ""}
-        <dt>Cancelled</dt><dd class="num">${r.cancelled}</dd></dl></div>`;
+        <dt>Cancelled</dt><dd class="num">${r.cancelled}</dd></dl></div>
+    ${collectorTable(r)}`;
   $("#prNew").onclick = () => printPasses(unprinted); $("#prReady").onclick = () => printPasses(ready); $("#prAll").onclick = () => printPasses(bs);
   if (mobReady.length) arm($("#mlAll"), () => bulkEmail(mobReady, $("#mlAll")), "Confirm: email " + mobReady.length);
   $("#xlOne").onclick = () => excel([ev]); $("#xlAll").onclick = () => excel(S.events.slice());
+}
+/* who holds the money: cash by the person who RECEIVED it; UPI / other by the person who MARKED it paid */
+function collectorTable(r) {
+  const rows = Object.values(r.byCollector).sort((a, z) => (z.cash + z.upi + z.other) - (a.cash + a.upi + a.other));
+  if (!rows.length) return "";
+  const t = rows.reduce((s, c) => ({ cash: s.cash + c.cash, upi: s.upi + c.upi, other: s.other + c.other }), { cash: 0, upi: 0, other: 0 });
+  return `<div class="panel" style="margin-top:12px" id="rpWho"><h3>Money collected by person</h3>
+    <p class="small muted" style="margin:4px 0 10px">Cash is counted against the person who <b>received</b> it, so each member can hand it over to the treasurer. UPI and other payments are listed against the person who <b>verified and marked</b> them paid.</p>
+    <div class="whol">${rows.map(c => `<div class="whor"><b class="nm">${esc(c.name)}</b><span class="tt num">${inr(c.cash + c.upi + c.other)}</span>
+      <span class="parts">${c.cashN ? `<span><i class="cash"></i>Cash in hand <b>${inr(c.cash)}</b> (${c.cashN})</span>` : ""}${c.upiN ? `<span><i class="upi"></i>UPI verified <b>${inr(c.upi)}</b> (${c.upiN})</span>` : ""}${c.otherN ? `<span><i class="oth"></i>Other <b>${inr(c.other)}</b> (${c.otherN})</span>` : ""}</span></div>`).join("")}
+    <div class="whor tot"><b class="nm">Total</b><span class="tt num">${inr(t.cash + t.upi + t.other)}</span><span class="parts"><span>Cash <b>${inr(t.cash)}</b></span><span>UPI <b>${inr(t.upi)}</b></span>${t.other ? `<span>Other <b>${inr(t.other)}</b></span>` : ""}</span></div></div></div>`;
 }
 function printPasses(list) {
   if (!list.length) { toast("No passes to print."); return; }
@@ -1165,12 +1236,14 @@ async function excel(evs) {
   const ids = new Set(evs.map(e => e.id)), wb = XLSX.utils.book_new();
   const sheet = rows => { const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Note: "No data" }]); const keys = Object.keys(rows[0] || { Note: 1 }); ws["!cols"] = keys.map(k => ({ wch: Math.min(40, Math.max(k.length + 2, ...rows.map(r => String(r[k] == null ? "" : r[k]).length + 1))) })); return ws; };
   XLSX.utils.book_append_sheet(wb, sheet(evs.map(ev => { const r = evStats(ev); return { "Event": ev.name_en || ev.name_gu, "Gujarati name": ev.name_gu || "", "Type": ev.kind === "multi" ? "Multiple sessions" : "One time", "Pricing": ev.price_mode === "free" ? "Free" : ev.price_mode === "discount" ? "Discounted" : "At cost",
-    "Booking opens": fd(ev.open_date), "Booking closes": fd(ev.close_date), "Passes": r.passes, "Adults": r.adults, "Children": r.children, "Persons": r.persons, "Billed (₹)": r.billed, "Collected (₹)": r.collected, "Cash (₹)": r.cash, "UPI (₹)": r.upi, "Pending (₹)": r.pending, "Actual cost (₹)": r.cost, "Society subsidy (₹)": r.subsidy, "Cancelled": r.cancelled }; })), "Summary");
+    "Booking opens": fd(ev.open_date), "Booking closes": fd(ev.close_date), "Passes": r.passes, "Adults": r.adults, "Children": r.children, "Persons": r.persons, "Billed (₹)": r.billed, "Collected (₹)": r.collected, "Cash (₹)": r.cash, "UPI (₹)": r.upi, "Other (₹)": r.other, "Pending (₹)": r.pending, "Actual cost (₹)": r.cost, "Society subsidy (₹)": r.subsidy, "Cancelled": r.cancelled }; })), "Summary");
   const bks = S.bookings.filter(b => ids.has(b.event_id)).sort((a, b) => a.flat.localeCompare(b.flat, undefined, { numeric: true }));
   const rows = bks.map(b => { const ev = evById(b.event_id) || {}, st = bStatus(b); return { "Event": ev.name_en || ev.name_gu, "Pass no.": b.pass_no, "Block": b.block, "Flat": b.flat, "Name": b.name, "Mobile": b.mobile, "Email": b.email || "", "Pass type": b.pass_type === "mobile" ? "Mobile" : "Printed",
-    "Sessions": sessLabel(ev, b.sessions), "Adults": b.adults, "Children": b.children, "Amount (₹)": +b.amount, "Late fee (₹)": +b.late_fee, "Status": st.label, "Paid amount (₹)": st.k === "paid" ? +b.paid_amount : 0, "Mode": b.pay_mode || "", "Receipt / UTR": b.pay_ref || b.upi_ref || "",
+    "Sessions": sessLabel(ev, b.sessions), "Adults": b.adults, "Children": b.children, "Amount (₹)": +b.amount, "Late fee (₹)": +b.late_fee, "Status": st.label, "Paid amount (₹)": st.k === "paid" ? +b.paid_amount : 0, "Mode": MODE[b.pay_mode] || "", "Cash received by": b.pay_mode === "cash" ? b.collected_by_name || "" : "", "Marked paid by": b.paid_by_name || "", "Receipt / UTR": b.pay_ref || b.upi_ref || "", "Payment note": b.pay_note || "",
     "Paid on": b.paid_at ? fdt(b.paid_at) : "", "Printed": b.printed_at ? fdt(b.printed_at) : "", "WhatsApp sent": b.wa_sent_at ? fdt(b.wa_sent_at) : "", "Email sent": b.email_sent_at ? fdt(b.email_sent_at) : "", "Booked on": fdt(b.created_at), "Booked at desk": b.by_committee ? "Yes" : "No" }; });
   XLSX.utils.book_append_sheet(wb, sheet(rows), "All bookings");
+  const coll = []; evs.forEach(ev => Object.values(evStats(ev).byCollector).forEach(c => coll.push({ "Event": ev.name_en || ev.name_gu, "Committee member": c.name, "Cash received (₹)": c.cash, "Cash bookings": c.cashN, "UPI verified (₹)": c.upi, "UPI bookings": c.upiN, "Other (₹)": c.other, "Other bookings": c.otherN, "Total (₹)": c.cash + c.upi + c.other })));
+  XLSX.utils.book_append_sheet(wb, sheet(coll), "Collected by");
   const per = []; bks.filter(active).forEach(b => { const ev = evById(b.event_id) || {}; persons(b).forEach(p => { const row = { "Event": ev.name_en || ev.name_gu, "Person pass no.": tok(b, p.n), "Flat": b.flat, "Booked by": b.name, "Person": p.type + " " + p.n, "Status": bStatus(b).label };
     (ev.sessions || []).filter(s => b.sessions.includes(s.id)).forEach(s => { const g = given(b, s.id, p.n); row[(s.label || s.meal) + " (" + fd(s.date) + ")"] = g ? "Given " + hm(g.at) : ""; }); per.push(row); }); });
   XLSX.utils.book_append_sheet(wb, sheet(per), "Person passes");
