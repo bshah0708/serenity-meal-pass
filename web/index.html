@@ -168,7 +168,6 @@
 
     <section data-pane="counter" hidden>
       <div class="pane-head"><div><h2>Counter</h2><p>Point the camera at each person's QR and hand over the item.</p></div></div>
-      <div id="ctLive"></div>
       <div class="scancard">
         <div id="camBox" class="cam" hidden role="dialog" aria-label="QR scanner"><video id="camVideo" playsinline muted></video><div class="reticle"></div>
           <div class="camtop"><b>Scan one person's QR</b><span id="camMsg">Hold the pass close, inside the box</span></div>
@@ -179,6 +178,7 @@
           <span class="small muted" id="camHint"></span></div>
       </div>
       <div id="ctScan"></div>
+      <div id="ctLive"></div>
       <div class="card" style="padding:14px;margin-bottom:14px">
         <div class="toolbar" style="margin:0">
           <div class="field" style="flex:2 1 220px"><label for="ctQ">Type pass no. or flat</label><div class="searchbox"><svg class="ic sm"><use href="#i-search"/></svg><input id="ctQ" type="text" placeholder="HOL27-E903-K7P2M or E-903"></div></div>
