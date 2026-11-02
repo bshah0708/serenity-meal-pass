@@ -258,6 +258,13 @@ function renderResident() {
   });
   renderMine(); renderReqBox();
 }
+/* totals of a set of bookings (active only) — used for "already booked / adding now / new total" */
+function sumUp(list) {
+  const act = list.filter(active), r = { count: act.length, adults: 0, children: 0, amount: 0, paid: 0, due: 0 };
+  act.forEach(b => { r.adults += b.adults; r.children += b.children; r.amount += +b.amount; if (b.status === "paid") r.paid += +b.amount; else r.due += +b.amount; });
+  r.persons = r.adults + r.children; return r;
+}
+const pplTxt = (a, c) => `${a + c} pass${a + c === 1 ? "" : "es"} (${a} adult${a === 1 ? "" : "s"}${c ? ", " + c + " child" + (c > 1 ? "ren" : "") : ""})`;
 function bookingForm(ev, asAdmin, preset) {
   if (!ev) return;
   const ss = ev.sessions || [], multi = ev.kind === "multi" && ss.length > 1, pf = S.profile || {};
@@ -265,6 +272,7 @@ function bookingForm(ev, asAdmin, preset) {
   const o = openSheet(`
     <header><div><div class="muted small">${asAdmin ? "Booking on behalf of a resident" : "પાસ બુકિંગ · Pass booking"}</div><h2 class="gu">${esc(ev.name_gu || ev.name_en)}</h2>${ev.name_gu && ev.name_en ? `<div class="muted">${esc(ev.name_en)}</div>` : ""}</div><button class="x" type="button" aria-label="Close">×</button></header>
     ${asAdmin ? `<div class="field"><label for="fEv">Event</label><select id="fEv">${evOpts}</select></div>` : ""}
+    <div id="dupNote"></div>
     <div class="grid3">
       <div class="field"><label for="fBlock">Block <span class="gu">બ્લોક</span></label><select id="fBlock"><option value="">–</option>${blockOpts()}</select></div>
       <div class="field"><label for="fFlat">Flat no. <span class="gu">ફ્લેટ</span></label><select id="fFlat"><option value="">Choose block first</option></select></div>
@@ -283,8 +291,7 @@ function bookingForm(ev, asAdmin, preset) {
     <div class="field"><span class="lab">How will you show the pass? <span class="gu">પાસ કેવી રીતે જોઈએ?</span></span>
       <div class="seg"><label><input type="radio" name="fType" value="mobile" checked> <span><span class="gu">મોબાઇલ પાસ</span> · Mobile pass <small class="muted" style="display:block">QR on WhatsApp &amp; email, show on phone</small></span></label>
       <label><input type="radio" name="fType" value="physical"> <span><span class="gu">પ્રિન્ટેડ પાસ</span> · Printed pass <small class="muted" style="display:block">Collect from the committee desk</small></span></label></div></div>
-    <div id="dupNote"></div>
-    <div class="total"><div><div class="lab">Amount payable <span class="gu">કુલ રકમ</span></div><div class="small muted" id="tBreak"></div></div><b class="num" id="tAmt">₹0</b></div>
+    <div class="sumbox" id="sumBox"></div>
     <div class="err" id="fErr"></div>
     <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="fCancel">Cancel</button><button class="btn primary" type="button" id="fGo">${asAdmin ? "Create booking" : "બુક કરો · Confirm booking"}</button></div>`);
   let a = 1, c = 0;
@@ -302,11 +309,21 @@ function bookingForm(ev, asAdmin, preset) {
   function upd() {
     $("#oA", o).textContent = a; $("#oC", o).textContent = c;
     const n = chosen().length, pr = priceFor(ev, n, a, c);
-    $("#tAmt", o).textContent = inr(pr.amount);
-    $("#tBreak", o).textContent = ev.price_mode === "free" ? "Free pass" : (pr.pkg ? "Full package rate" : (n + " session" + (n === 1 ? "" : "s") + " × " + (a + c) + " person" + (a + c === 1 ? "" : "s"))) + (pr.late ? " · includes late fee " + inr(pr.lateAmt) : "");
+    const how = ev.price_mode === "free" ? "Free pass" : (pr.pkg ? "Full package rate" : (n + " session" + (n === 1 ? "" : "s") + " × " + (a + c) + " person" + (a + c === 1 ? "" : "s"))) + (pr.late ? " · incl. late fee " + inr(pr.lateAmt) : "");
     const flat = $("#fBlock", o).value && $("#fFlat", o).value ? $("#fBlock", o).value + "-" + $("#fFlat", o).value : "";
-    const dups = flat ? S.bookings.filter(b => b.event_id === ev.id && b.flat === flat && active(b)) : [];
-    $("#dupNote", o).innerHTML = dups.length ? `<div class="notice warn small">${asAdmin ? "Flat " + esc(flat) + " already has" : "You already have"} ${dups.length} booking${dups.length > 1 ? "s" : ""} for this event (${dups.map(d => esc(d.pass_no)).join(", ")}). You can still add another.</div>` : "";
+    const prev = S.bookings.filter(b => b.event_id === ev.id && active(b) && (asAdmin ? (flat && b.flat === flat) : b.user_id === S.user.id));
+    const P = sumUp(prev);
+    $("#dupNote", o).innerHTML = P.count ? `<div class="prevbox">
+        <div class="spread"><b>${asAdmin ? "Flat " + esc(flat) + " has already booked" : "<span class='gu'>તમે પહેલેથી બુક કર્યું છે</span> · You have already booked"}</b><span class="chip info">${P.count} booking${P.count > 1 ? "s" : ""}</span></div>
+        <div class="prevlist">${prev.map((b, i) => { const st = bStatus(b); return `<div class="prevrow"><span class="num">${i + 1}.</span><span>${pplTxt(b.adults, b.children)}<small class="mono">${esc(b.pass_no)}</small></span><span class="num">${+b.amount > 0 ? inr(b.amount) : "Free"}</span><span class="chip ${st.cls}">${esc(st.label)}</span></div>`; }).join("")}</div>
+        <div class="small muted">This form adds a <b>new, separate booking</b> with its own passes. Your earlier passes stay as they are.</div></div>` : "";
+    const T = { a: P.adults + a, c: P.children + c, amt: P.amount + pr.amount };
+    $("#sumBox", o).innerHTML = (P.count ? `
+      <div class="sumrow"><span>Already booked</span><span>${pplTxt(P.adults, P.children)}</span><b class="num">${inr(P.amount)}</b></div>
+      <div class="sumrow now"><span>Adding now <small>${esc(how)}</small></span><span>${pplTxt(a, c)}</span><b class="num">${inr(pr.amount)}</b></div>
+      <div class="sumrow total-line"><span>Total for this event</span><span>${pplTxt(T.a, T.c)}</span><b class="num">${inr(T.amt)}</b></div>` : "") +
+      `<div class="total"><div><div class="lab">${P.count ? "Pay for this new booking" : "Amount payable"} <span class="gu">${P.count ? "આ બુકિંગની રકમ" : "કુલ રકમ"}</span></div><div class="small muted">${P.count ? pplTxt(a, c) + " · " : ""}${esc(how)}</div></div><b class="num" id="tAmt">${inr(pr.amount)}</b></div>`;
+    $("#fGo", o).textContent = asAdmin ? (P.count ? "Add booking" : "Create booking") : (P.count ? `Add ${a + c} more pass${a + c === 1 ? "" : "es"}` : "બુક કરો · Confirm booking");
   }
   $$(".step button", o).forEach(b => b.onclick = () => { const v = +b.dataset.v; if (b.dataset.d === "a") a = Math.max(0, Math.min(20, a + v)); else c = Math.max(0, Math.min(20, c + v)); upd(); });
   if (multi) { $$(".sesslist input", o).forEach(i => i.onchange = upd); $("#sAll", o).onclick = () => { $$(".sesslist input", o).forEach(i => i.checked = true); upd(); }; $("#sNone", o).onclick = () => { $$(".sesslist input", o).forEach(i => i.checked = false); upd(); }; }
@@ -388,6 +405,11 @@ function confirmSheet(b, asAdmin) {
   const desk = S.settings.desk || {}, mobile = b.pass_type !== "physical";
   const o = openSheet(`
     <header><div><div class="chip ok">Booked</div><h2 style="margin-top:6px" class="gu">બુકિંગ થઈ ગયું · Booking confirmed</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+    ${(() => { const all = S.bookings.filter(x => x.event_id === b.event_id && active(x) && (asAdmin ? x.flat === b.flat : x.user_id === S.user.id) && x.id !== b.id); if (!all.length) return "";
+      const T = sumUp(all.concat([b])); return `<div class="prevbox"><b>This is booking ${all.length + 1} for this event.</b>
+        <div class="sumrow"><span>Earlier</span><span>${pplTxt(T.adults - b.adults, T.children - b.children)}</span><b class="num">${inr(T.amount - b.amount)}</b></div>
+        <div class="sumrow now"><span>Just added</span><span>${pplTxt(b.adults, b.children)}</span><b class="num">${inr(b.amount)}</b></div>
+        <div class="sumrow total-line"><span>Total now</span><span>${pplTxt(T.adults, T.children)}</span><b class="num">${inr(T.amount)}</b></div></div>`; })()}
     ${passCard(b)}
     ${+b.amount > 0 ? `<div class="notice small"><span class="gu">${inr(b.amount)} કમિટી ડેસ્ક પર ચૂકવો. ${mobile ? "પેમેન્ટ પછી પાસ માન્ય થશે." : "પેમેન્ટ પછી પ્રિન્ટેડ પાસ મળશે."}</span><br>Pay ${inr(b.amount)} at the committee desk${(S.settings.upi || {}).enabled ? " or by UPI below" : ""}. ${mobile ? "Your mobile pass becomes valid once payment is confirmed." : "Your printed pass is handed over after payment."}${desk.place ? "<br><b>Desk:</b> " + esc(desk.place) : ""}${desk.contact ? "<br><b>Contact:</b> " + esc(desk.contact) : ""}</div>` : `<div class="notice small">This is a free pass.</div>`}
     ${upiBlock(b)}
@@ -400,13 +422,57 @@ function confirmSheet(b, asAdmin) {
     if ($("#cMail", o)) $("#cMail", o).onclick = () => emailPass(b, $("#cMail", o), $("#cErr", o));
   }
 }
+function paySection(b) {
+  const st = bStatus(b), desk = S.settings.desk || {};
+  if (b.status === "cancelled") return `<div class="paysec"><div class="payrow"><span>Status</span><span class="chip bad">Cancelled</span></div></div>`;
+  return `<div class="paysec">
+    <div class="payrow"><span>Amount</span><b class="num">${+b.amount > 0 ? inr(b.amount) : "Free"}</b></div>
+    <div class="payrow"><span>Status</span><span class="chip ${st.cls}">${esc(st.label)}</span></div>
+    ${b.paid_at && b.status === "paid" && +b.amount > 0 ? `<div class="payrow"><span>Paid on</span><span>${fdt(b.paid_at)}</span></div>` : ""}
+    ${b.status === "pending" ? `<div class="small muted"><span class="gu">કમિટી ડેસ્ક પર ચૂકવો</span> · Pay at the committee desk${(S.settings.upi || {}).enabled ? " or by UPI" : ""}.${desk.place ? " " + esc(desk.place) + "." : ""}${desk.contact ? " Contact " + esc(desk.contact) + "." : ""}</div>` : ""}
+    ${upiBlock(b)}
+  </div>`;
+}
+function myBookingCard(b, i, n) {
+  const ev = evById(b.event_id) || {}, st = bStatus(b);
+  return `<article class="mybk${b.status === "cancelled" ? " is-cancelled" : ""}">
+    <div class="mybk-h"><div><b>Booking ${i} of ${n}</b> · ${pplTxt(b.adults, b.children)}<div class="small muted">${esc(sessLabel(ev, b.sessions))} · ${esc(evDates(ev, b))} · ${b.pass_type === "physical" ? "Printed pass" : "Mobile pass"} · booked ${fd(b.created_at)}</div></div><span class="chip ${st.cls}">${esc(st.label)}</span></div>
+    ${b.status === "cancelled" ? "" : `<div class="seclabel"><span class="gu">પાસ</span> · Passes <small>one QR per person</small></div><div class="tickets">${persons(b).map(p => ticket(b, p.n)).join("")}</div>`}
+    <div class="sep"><span><span class="gu">ચુકવણી</span> · Payment</span></div>
+    ${paySection(b)}
+    ${b.status !== "cancelled" ? `<div class="row mybk-act"><a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>${b.status === "pending" ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}">Cancel booking</button>` : ""}</div>` : ""}
+  </article>`;
+}
 function renderMine() {
-  const box = $("#myList");
-  const list = S.bookings.filter(b => b.user_id === S.user.id).sort((x, y) => y.created_at.localeCompare(x.created_at));
-  box.innerHTML = list.length ? `<div style="display:grid;gap:12px">${list.map(b => passCard(b,
-      `<div class="row">${b.status !== "cancelled" ? `<a class="btn sm" href="${esc(waLink(b, true))}" target="_blank" rel="noopener">Save to WhatsApp</a>` : ""}${b.status === "pending" ? `<button class="btn sm danger" type="button" data-mycancel="${b.id}">Cancel booking</button>` : ""}</div>`) + upiBlock(b)).join("")}</div>`
-    : `<div class="empty"><b>No passes yet</b>Book from an open event above. Your passes will appear here.</div>`;
+  const box = $("#myList"), bar = $("#myTools");
+  const mine = S.bookings.filter(b => b.user_id === S.user.id);
+  bar.hidden = !mine.length;
+  if (!mine.length) { box.innerHTML = `<div class="empty"><b>No passes yet</b>Book from an open event above. Your passes will appear here.</div>`; return; }
+  const firstDate = e => ((e.sessions || [])[0] || {}).date || e.open_date || "";
+  const evIds = [...new Set(mine.map(b => b.event_id))].map(evById).filter(Boolean).sort((x, y) => firstDate(y).localeCompare(firstDate(x)));
+  const sel = $("#myEv"), cur = sel.value;
+  sel.innerHTML = `<option value="">All events (${evIds.length})</option>` + evIds.map(e => `<option value="${e.id}">${esc(e.name_gu || e.name_en)}${e.name_gu && e.name_en ? " · " + esc(e.name_en) : ""}</option>`).join("");
+  if (evIds.some(e => e.id === cur)) sel.value = cur;
+  const q = $("#myQ").value.trim().toLowerCase();
+  const groups = evIds.filter(e => !sel.value || e.id === sel.value).map(e => {
+    const all = mine.filter(b => b.event_id === e.id).sort((x, y) => x.created_at.localeCompare(y.created_at));
+    const shown = all.filter(b => !q || [b.pass_no, b.name, b.flat, e.name_gu, e.name_en, evDates(e, b), ...persons(b).map(p => tok(b, p.n))].join(" ").toLowerCase().includes(q));
+    return { e, all, shown };
+  }).filter(g => g.shown.length);
+  if (!groups.length) { box.innerHTML = `<div class="empty"><b>No passes match</b>Try another event or clear the search.</div>`; return; }
+  box.innerHTML = groups.map(({ e, all, shown }) => {
+    const T = sumUp(all), activeList = all.filter(active);
+    return `<section class="evgroup">
+      <div class="evhead"><div style="min-width:0"><h3 class="gu">${esc(e.name_gu || e.name_en)}</h3>${e.name_gu && e.name_en ? `<div class="small muted">${esc(e.name_en)}</div>` : ""}
+        <div class="small muted">${esc((e.sessions || []).length ? fd(e.sessions[0].date) + ((e.sessions || []).length > 1 ? " → " + fd(e.sessions[e.sessions.length - 1].date) : "") : "")}${e.venue ? " · " + esc(e.venue) : ""}</div></div>
+        <div class="evtot"><b>${T.persons}</b><span>pass${T.persons === 1 ? "" : "es"}</span></div></div>
+      <div class="evsum"><span>${T.count} booking${T.count === 1 ? "" : "s"} · ${pplTxt(T.adults, T.children)}</span><span>Total <b class="num">${inr(T.amount)}</b>${T.due > 0 ? ` · <span style="color:var(--warn)">due ${inr(T.due)}</span>` : T.amount > 0 ? ` · <span style="color:var(--ok)">all paid</span>` : ""}</span></div>
+      ${shown.map(b => myBookingCard(b, activeList.indexOf(b) + 1 || all.indexOf(b) + 1, b.status === "cancelled" ? all.length : activeList.length)).join("")}
+      ${windowState(e).k === "open" ? `<button class="btn" type="button" data-bookmore="${e.id}"><svg class="ic sm"><use href="#i-plus"/></svg>Book more passes for this event</button>` : ""}
+    </section>`;
+  }).join("");
   wireUtr(box);
+  $$("[data-bookmore]", box).forEach(btn => btn.onclick = () => bookingForm(evById(btn.dataset.bookmore), false));
   $$("[data-mycancel]", box).forEach(btn => arm(btn, async () => { const { error } = await sb.rpc("cancel_booking", { p_booking: btn.dataset.mycancel }); if (error) toast(errMsg(error)); else { toast("Booking cancelled"); reloadSoon(); } }, "Confirm cancel"));
 }
 function renderReqBox() {
@@ -978,6 +1044,7 @@ $("#bkSearch").oninput = renderBookings; $("#ctQ").oninput = renderCounter; $("#
 $("#bkNew").onclick = () => { const ev = evById($("#bkEvent").value) || S.events[0]; if (!ev) { toast("Create an event first."); return; } bookingForm(ev, true); };
 $("#newEvent").onclick = () => eventForm();
 $("#bkBlock").innerHTML = blockOpts(true);
+$("#myEv").onchange = renderMine; $("#myQ").addEventListener("input", renderMine);
 try { const t = localStorage.getItem("ss_tab"); if (t) tab = t; } catch (e) {}
 
 /* ───────────── install as an app (Android + iPhone) ───────────── */

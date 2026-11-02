@@ -38,3 +38,36 @@ button,a,label,.pick{-webkit-tap-highlight-color:transparent;touch-action:manipu
 .ios-steps li::before{counter-increment:s;content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--leaf);color:var(--leaf-ink);display:grid;place-items:center;font-weight:700;flex:none}
 .ios-steps .glyph{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--sunk);vertical-align:middle;margin:0 2px}
 @media (display-mode: standalone){.foot{padding-bottom:8px}}
+
+/* ── My passes: grouped by event, passes | payment ── */
+.mytools{padding:14px;margin-bottom:14px}
+#myList{display:grid;gap:18px}
+.evgroup{display:grid;gap:12px}
+.evhead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;background:linear-gradient(135deg,#1F5A33,#2E7A47);color:#fff;border-radius:20px 20px 14px 14px;padding:14px 16px}
+.evhead h3{color:#fff;font-size:1.2rem}.evhead .muted{color:rgba(255,255,255,.82)}
+.evtot{text-align:center;background:rgba(255,255,255,.16);border-radius:14px;padding:6px 12px;line-height:1.1;flex:none}
+.evtot b{display:block;font-family:var(--display);font-size:1.6rem}.evtot span{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}
+.evsum{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:.88rem;background:var(--leaf-tint);border:1px solid var(--leaf-soft);border-radius:12px;padding:8px 12px;margin-top:-6px}
+.mybk{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:14px;display:grid;gap:12px;box-shadow:var(--shadow)}
+.mybk.is-cancelled{opacity:.7}
+.mybk-h{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.seclabel{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--leaf);display:flex;gap:8px;align-items:baseline}
+.seclabel small{font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)}
+.sep{display:flex;align-items:center;gap:10px;color:var(--leaf);font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+.sep::before,.sep::after{content:"";flex:1;border-top:2px dashed var(--line2)}
+.paysec{display:grid;gap:8px;background:var(--raise);border:1px solid var(--line);border-radius:14px;padding:12px}
+.payrow{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.92rem}
+.payrow > span:first-child{color:var(--muted)}
+.paysec .upi{border:0;padding:8px 0 0;background:none;border-top:1px solid var(--line);border-radius:0}
+.mybk-act{padding-top:2px}
+/* booking form: already booked / adding now / total */
+.prevbox{display:grid;gap:8px;background:var(--info-soft);border-radius:14px;padding:12px 14px}
+.prevlist{display:grid;gap:6px}
+.prevrow{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;background:var(--surface);border-radius:10px;padding:7px 10px;font-size:.88rem}
+.prevrow small{display:block;color:var(--muted);font-size:.74rem}
+.sumbox{display:grid;gap:6px}
+.sumrow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:baseline;padding:8px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:.9rem}
+.sumrow small{display:block;color:var(--muted);font-size:.75rem}
+.sumrow.now{border-color:var(--leaf);background:var(--leaf-tint)}
+.sumrow.total-line{background:var(--sunk);font-weight:700}
+@media (max-width:420px){.sumrow{grid-template-columns:1fr auto}.sumrow > span:nth-child(2){grid-column:1;grid-row:2;font-size:.82rem;color:var(--muted)}.sumrow b{grid-row:1/3;align-self:center}.prevrow{grid-template-columns:auto 1fr auto}.prevrow .chip{grid-column:2/4;justify-self:start}}
