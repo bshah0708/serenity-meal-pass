@@ -217,7 +217,7 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 /* payment: who handled the money */
 .seg.paymode{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.seg.paymode label{justify-content:center;padding-inline:6px}
 .pm[hidden]{display:none}
-.who{display:flex;gap:8px;align-items:flex-start;background:var(--leaf-tint);border:1px solid var(--leaf-soft);border-radius:12px;padding:9px 11px;color:var(--ink)}
+.wholine{display:flex;gap:8px;align-items:flex-start;background:var(--leaf-tint);border:1px solid var(--leaf-soft);border-radius:12px;padding:9px 11px;color:var(--ink)}
 .who-l{color:var(--muted);font-size:.74rem;line-height:1.3;margin-top:2px}
 .whol{display:flex;flex-direction:column;gap:6px}
 .whor{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);min-width:0}
@@ -248,3 +248,13 @@ input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .tp-ic{width:38px;height:38px;flex:none;border-radius:10px;background:var(--leaf-tint);color:var(--leaf);display:grid;place-items:center}
 .tp-go{font-size:.78rem;font-weight:700;color:var(--leaf);white-space:nowrap}
 .qrnav{display:flex;align-items:center;justify-content:space-between;gap:8px}
+
+/* audit trail + meals given */
+.ovl.rsn{z-index:80}
+.arow{border-top:1px solid var(--line);padding:8px 0;display:grid;gap:2px}.arow:first-of-type{border-top:0}
+.gvlist{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.gv{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:.86rem}
+.gv.done{background:var(--ok-soft);border-color:transparent}
+.chipbtn{cursor:pointer;border:0;font:inherit}
+.pchip .undo{opacity:.6;margin-left:2px}
+#cxPaid[hidden],#cxFree[hidden]{display:none}

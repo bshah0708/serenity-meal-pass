@@ -156,7 +156,12 @@ await fails(akash, "select record_payment($1,'other',$2)", [p4.id, p4.amount], /
 await as(akash, "select record_payment($1,'other',$2,null,null,null,'Cheque 004512 HDFC')", [p4.id, p4.amount]);
 r = await as(asha, "select pay_mode, pay_note, collected_by_name, paid_by_name from bookings where id=$1", [p1.id]);
 assert.equal(r.rows[0].collected_by_name, "Biren Shah"); ok("resident sees who received the cash on their own booking");
-await as(akash, "select undo_paid($1)", [p1.id]);
+await fails(akash, "select undo_paid($1)", [p1.id], /permission denied/); ok("undo payment without a reason is not allowed");
+await fails(akash, "select undo_paid($1,'')", [p1.id], /reason/); ok("blank reason refused");
+await as(akash, "select undo_paid($1,'Entered against wrong flat')", [p1.id]);
+r = await as(akash, "select action, actor_name, reason, details->>'cash_received_by' c from audit_log where booking_id=$1", [p1.id]);
+assert.equal(r.rows[0].action, "undo_paid"); assert.equal(r.rows[0].actor_name, "Akash"); assert.equal(r.rows[0].c, "Biren Shah");
+ok("undo payment logged: who, reason and the payment that was removed");
 r = await as(akash, "select status, collected_by_name, paid_by_name from bookings where id=$1", [p1.id]);
 assert.equal(r.rows[0].status, "pending"); assert.equal(r.rows[0].collected_by_name, null); ok("undo paid clears who collected / marked");
 
@@ -179,14 +184,15 @@ await db.exec("reset role"); await db.query("update events set cancel_until = cu
 await fails(asha, "select cancel_booking($1)", [q3.id], /Cancellation closed/); ok("after the last cancellation date a paid booking cannot be cancelled");
 await db.query("update events set cancel_paid = 'no' where id=$1", [evC]);
 await fails(asha, "select cancel_booking($1)", [q3.id], /cannot be cancelled/); ok("event set to 'no cancellation' blocks paid cancellations");
-await as(akash, "select cancel_booking($1)", [q3.id]);
+await fails(akash, "select cancel_booking($1)", [q3.id], /reason for cancelling/); ok("committee must give a reason to cancel a resident's booking");
+await as(akash, "select cancel_booking($1,'Resident moved out')", [q3.id]);
 r = await as(akash, "select cancel_reason, refund_status, cancelled_by_name from bookings where id=$1", [q3.id]);
 assert.equal(r.rows[0].cancel_reason, "committee"); assert.equal(r.rows[0].refund_status, "due"); assert.equal(r.rows[0].cancelled_by_name, "Akash"); ok("committee can still cancel; records who did it");
 await fails(asha, "select record_refund($1,true)", [q3.id], /Committee only/); ok("only committee records refunds");
 await as(akash, "select record_refund($1,true,'Cash returned')", [q3.id]);
 r = await as(asha, "select refund_status, refunded_by_name from bookings where id=$1", [q3.id]);
 assert.equal(r.rows[0].refund_status, "refunded"); assert.equal(r.rows[0].refunded_by_name, "Akash"); ok("refund recorded with who returned the money");
-await fails(akash, "select restore_booking($1)", [q3.id], /already refunded/); ok("a refunded booking cannot be restored");
+await fails(akash, "select restore_booking($1,'Wrongly cancelled')", [q3.id], /already refunded/); ok("a refunded booking cannot be restored");
 await as(asha, "select submit_upi_ref($1,'412300000000')", [q5.id]);
 await db.exec("reset role"); await db.query("update bookings set created_at = now() - interval '5 days' where id = any($1)", [[q4.id, q5.id]]);
 r = await as(asha, "select auto_cancel_unpaid() n"); assert.equal(r.rows[0].n, 1);
@@ -196,8 +202,28 @@ assert.equal(st[q4.id], "cancelled/auto_unpaid"); assert.equal(st[q5.id], "pendi
 ok("auto-cancel: unpaid booking past the deadline cancelled; UPI waiting for check and late bookings kept");
 r = await as(asha, "select auto_cancel_unpaid() n"); assert.equal(r.rows[0].n, 0); ok("auto-cancel is safe to run again");
 
+// --- audit trail: mark not given, restore ---
+await fails(akash, "select set_given($1,$2,'{2}',false)", [bA.id, s1], /permission denied/); ok("'not given' without reason is not allowed");
+await fails(akash, "select set_given($1,$2,'{2}',false,'no')", [bA.id, s1], /reason/); ok("too-short reason refused");
+await as(akash, "select set_given($1,$2,'{2}',false,'Scanned the wrong pass by mistake')", [bA.id, s1]);
+r = await as(akash, "select count(*)::int n from checkins where booking_id=$1 and person_no=2", [bA.id]); assert.equal(r.rows[0].n, 0);
+r = await as(akash, "select details from audit_log where action='not_given' and booking_id=$1", [bA.id]);
+assert.equal(r.rows[0].details.removed[0].person, 2); assert.ok(r.rows[0].details.removed[0].given_at); ok("mark not given: removed and logged with the original hand-over time");
+await fails(akash, "select set_given($1,$2,'{2}',false,'Again by mistake')", [bA.id, s1], /Nothing to undo/); ok("cannot 'un-give' something not given");
+await as(akash, "select set_given($1,$2,'{2}',true,null)", [bA.id, s1]); ok("marking given needs no reason");
+const qR = await nc(); await as(akash, "select cancel_booking($1,'Duplicate booking')", [qR.id]);
+await as(akash, "select restore_booking($1,'Not a duplicate after all')", [qR.id]);
+r = await as(akash, "select action, reason from audit_log where booking_id=$1 order by id", [qR.id]);
+assert.deepEqual(r.rows.map(x => x.action), ["cancel", "restore"]); ok("committee cancel and restore both logged with reasons");
+r = await as(asha, "select count(*)::int n from audit_log"); assert.equal(r.rows[0].n, 0); ok("residents cannot read the audit trail");
+await fails(akash, "insert into audit_log(action, reason) values ('x','fake entry')", [], /permission denied|row-level/); ok("audit trail cannot be written directly");
+await fails(akash, "delete from audit_log", [], /permission denied|row-level/).catch(async () => { r = await db.query("select count(*)::int n from audit_log"); assert.ok(r.rows[0].n > 0); });
+r = await db.query("select count(*)::int n from audit_log"); assert.ok(r.rows[0].n >= 5); ok("audit trail cannot be deleted");
+
 // --- revoke ---
-await as(biren, "select revoke_committee($1)", [akash]);
+await fails(biren, "select revoke_committee($1,'')", [akash], /reason/);
+await as(biren, "select revoke_committee($1,'Stepped down from committee')", [akash]);
+r = await db.query("select count(*)::int n from audit_log where action='revoke_committee'"); assert.equal(r.rows[0].n, 1); ok("removing a committee member is logged with reason");
 r = await as(akash, "select count(*)::int n from bookings"); assert.equal(r.rows[0].n, 0); ok("revoked member loses access to others' bookings");
 
 console.log("\nAll database checks passed.");

@@ -182,11 +182,12 @@ async function loadData() {
   try { await sb.rpc("auto_cancel_unpaid"); } catch (e) {}
   S.bookings = (await fetchAll(() => sb.from("bookings").select("*, booking_sessions(session_id)").order("created_at", { ascending: false }))).map(normBooking);
   const ck = await fetchAll(() => sb.from("checkins").select("*"));
-  const m = {}; ck.forEach(c => { ((m[c.booking_id] = m[c.booking_id] || {})[c.session_id] = m[c.booking_id][c.session_id] || {})[c.person_no] = { at: c.given_at }; });
+  const m = {}; ck.forEach(c => { ((m[c.booking_id] = m[c.booking_id] || {})[c.session_id] = m[c.booking_id][c.session_id] || {})[c.person_no] = { at: c.given_at, by: c.given_by }; });
   S.checkins = m;
   if (isStaff()) {
     const [pr, st] = await Promise.all([fetchAll(() => sb.from("profiles").select("*")), sb.from("staff").select("*")]);
     S.profiles = Object.fromEntries(pr.map(p => [p.id, p])); S.staffList = st.data || [];
+    S.audit = (await sb.from("audit_log").select("*").order("at", { ascending: false }).limit(1000)).data || [];
     if (isSuper()) S.requests = (await sb.from("staff_requests").select("*").order("requested_at")).data || [];
   } else {
     await Promise.all(S.events.filter(e => e.capacity > 0 && windowState(e).k === "open").map(async e => {
@@ -728,7 +729,7 @@ async function passPng(b, n) {
   return new Promise(r => cv.toBlob(r, "image/png"));
 }
 function downloadBlob(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
-function passSheet(b) {
+function passSheet(b, focusSel) {
   if (!b) return;
   const st = bStatus(b);
   const o = openSheet(`<header><div><div class="muted small">${b.pass_type === "physical" ? "Printed pass" : "Mobile pass"} · booked ${fdt(b.created_at)}${b.by_committee ? " at desk" : ""}</div><h2>${esc(b.flat)} · ${esc(b.name)}</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
@@ -742,6 +743,8 @@ function passSheet(b) {
       <dt>Marked paid by</dt><dd>${esc(b.paid_by_name || "—")} · ${fdt(b.paid_at)}</dd>
       ${b.pay_ref ? `<dt>${b.pay_mode === "upi" ? "UTR" : "Receipt no."}</dt><dd class="mono">${esc(b.pay_ref)}</dd>` : ""}
       ${b.pay_note ? `<dt>${b.pay_mode === "waived" ? "Reason" : "Details"}</dt><dd>${esc(b.pay_note)}</dd>` : ""}</dl></div>` : ""}
+    ${givenPanel(b)}
+    ${(() => { const h = (S.audit || []).filter(a => a.booking_id === b.id); return h.length ? `<div class="panel"><h3 style="margin-bottom:6px">History of changes</h3>${h.map(a => auditRow(a)).join("")}</div>` : ""; })()}
     <div class="panel"><h3 style="margin-bottom:8px">Send passes</h3>
       <div class="row"><a class="btn primary" id="psWa" href="${esc(waLink(b))}" target="_blank" rel="noopener">WhatsApp to ${esc(b.mobile)}</a>
         <button class="btn" type="button" id="psMail"${b.email ? "" : " disabled"}>Email ${b.adults + b.children} pass${b.adults + b.children > 1 ? "es" : ""}</button></div>
@@ -753,6 +756,8 @@ function passSheet(b) {
   $$("[data-img]", o).forEach(x => x.onclick = async () => downloadBlob(await passPng(b, +x.dataset.img), `Serenity_Space_Pass_${tok(b, +x.dataset.img)}.png`));
   if ($("#psPay", o)) $("#psPay", o).onclick = () => payForm(b);
   $("#psMail", o).onclick = () => emailPass(b, $("#psMail", o), $("#psErr", o));
+  wireGiven(o, async () => { await loadData(); render(); passSheet(S.bookings.find(x => x.id === b.id), "#gvPanel"); });
+  if (focusSel && $(focusSel, o)) setTimeout(() => $(focusSel, o).scrollIntoView({ block: "start" }), 50);
 }
 
 /* ───────────── committee: shared ───────────── */
@@ -912,14 +917,15 @@ function eventForm(ev, tpl) {
       <div class="field" data-show="paid discount"><label for="pLate">Rate increases from (optional)</label><input id="pLate" type="date" value="${esc(e.late_from || "")}"></div>
       <div class="field" data-show="paid discount"><label for="pLateX">Increase ₹ per person / session</label><input id="pLateX" type="number" min="0" value="${esc(v("late_extra"))}"></div>
     </div>
-    <div class="panel" style="padding:12px" data-show="paid discount"><span class="lab">Cancellation <span class="gu">રદ કરવાના નિયમો</span></span>
+    <div class="panel cxpanel" style="padding:12px"><span class="lab">Cancellation rules <span class="gu">રદ કરવાના નિયમો</span></span>
+      <div class="small" id="cxFree" hidden>Free event: residents can cancel any time before the meal is collected. No payment, so no refund rules.</div><div id="cxPaid">
       <p class="small muted" style="margin:2px 0 8px">Residents can always cancel an <b>unpaid</b> booking. Choose what happens after payment.</p>
       <div class="seg"><label><input type="radio" name="cxP" value="no"${e.cancel_paid !== "until" ? " checked" : ""}> Paid passes cannot be cancelled</label><label><input type="radio" name="cxP" value="until"${e.cancel_paid === "until" ? " checked" : ""}> Allowed until a date (refund)</label></div>
       <div class="grid2" style="margin-top:8px">
         <div class="field" id="cxUntilF"><label for="cxUntil">Last date to cancel a paid pass</label><input id="cxUntil" type="date" value="${esc(e.cancel_until || "")}"></div>
         <div class="field"><label for="cxDays">Auto-cancel unpaid bookings … days before the event (blank = never)</label><input id="cxDays" type="number" min="0" max="60" inputmode="numeric" value="${e.unpaid_cancel_days == null ? "" : esc(e.unpaid_cancel_days)}" placeholder="e.g. 2"></div>
       </div>
-      <div class="small" id="cxPrev"></div></div>
+      </div><div class="small" id="cxPrev"></div></div>
     <div class="field"><label for="eNotes">Note for residents (menu, timing)</label><textarea id="eNotes">${esc(e.notes || "")}</textarea></div>
     <label class="row"><input type="checkbox" id="ePub"${e.published ? " checked" : ""}> Publish to residents</label>
     <div class="err" id="eErr"></div>
@@ -937,14 +943,14 @@ function eventForm(ev, tpl) {
   }
   function drawPrice() { const m = pm(); $$("[data-show]", o).forEach(x => x.hidden = !x.dataset.show.split(" ").includes(m)); $$("[data-multi]", o).forEach(x => x.hidden = kind() !== "multi" || m === "free"); }
   $$("input[name=eKind]", o).forEach(r => r.onchange = () => { readSess(); drawSess(); });
-  $$("input[name=pMode]", o).forEach(r => r.onchange = drawPrice);
+  $$("input[name=pMode]", o).forEach(r => r.onchange = () => { drawPrice(); if (typeof cxDraw === "function") cxDraw(); });
   $("#sAdd", o).onclick = () => { readSess(); e.sessions.push({ _k: rid(6), label: "", date: "", meal: (e.sessions.slice(-1)[0] || {}).meal || "Snacks" }); drawSess(); };
   $("#gGo", o).onclick = () => { const st = $("#gStart", o).value, n = +$("#gN", o).value, m = $("#gMeal", o).value; if (!st || !(n > 0)) { toast("Pick the first day and number of days."); return; }
     readSess(); e.sessions = e.sessions.filter(s => s.date || s.label); const d = new Date(st + "T00:00:00");
     for (let i = 0; i < n; i++) { const x = new Date(d); x.setDate(d.getDate() + i); e.sessions.push({ _k: rid(6), label: "Day " + (i + 1), date: x.getFullYear() + "-" + pad(x.getMonth() + 1) + "-" + pad(x.getDate()), meal: m }); } drawSess(); };
   const cxRead = () => ({ cancel_paid: $("input[name=cxP]:checked", o).value, cancel_until: $("input[name=cxP]:checked", o).value === "until" ? ($("#cxUntil", o).value || null) : null,
     unpaid_cancel_days: $("#cxDays", o).value === "" ? null : Math.max(0, Math.min(60, Math.floor(+$("#cxDays", o).value || 0))) });
-  const cxDraw = () => { readSess(); const c = cxRead(); $("#cxUntilF", o).hidden = c.cancel_paid !== "until";
+  const cxDraw = () => { readSess(); const c = cxRead(); $("#cxUntilF", o).hidden = c.cancel_paid !== "until"; $("#cxFree", o).hidden = pm() !== "free"; $("#cxPaid", o).hidden = pm() === "free";
     const fake = Object.assign({}, c, { price_mode: pm(), sessions: e.sessions.filter(s => s.date).sort((a, z) => a.date.localeCompare(z.date)) });
     $("#cxPrev", o).innerHTML = `<div class="muted" style="margin-bottom:4px">Residents will see:</div>` + cancelLines(fake).map(l => `<div class="policy-l ${l.k}">${esc(l.en)}</div>`).join(""); };
   $$("input[name=cxP]", o).forEach(r => r.onchange = cxDraw); ["#cxUntil", "#cxDays"].forEach(id => $(id, o).oninput = cxDraw); o.addEventListener("change", e2 => { if (e2.target.closest(".sessed")) cxDraw(); });
@@ -1021,7 +1027,7 @@ function renderBookings() {
     <td data-l="sess" class="tw small">${esc(sessLabel(ev, b.sessions))} · ${b.adults}A ${b.children}C</td><td data-l="a" class="r num">${b.adults}</td><td data-l="c" class="r num">${b.children}</td>
     <td data-l="amt" class="r num">${+b.amount > 0 ? inr(b.amount) : "Free"}${+b.late_fee ? `<div class="small muted">incl. late ${inr(b.late_fee)}</div>` : ""}</td>
     <td data-l="status"><span class="chip ${st.cls}">${esc(st.label)}</span>${b.upi_ref ? `<div class="small mono muted">UTR ${esc(b.upi_ref)}</div>` : ""}${b.paid_at && st.k === "paid" ? `<div class="small muted">${fdt(b.paid_at)}</div>${payWho(b) ? `<div class="small who-l">${esc(payWho(b))}</div>` : ""}` : ""}${st.k === "cancelled" ? `<div class="small who-l">${esc(cancelInfo(b))}</div>${refundInfo(b) ? `<span class="chip ${refundInfo(b).cls}">${esc(refundInfo(b).label)}</span>${b.refund_status !== "due" ? `<div class="small who-l">${esc(refundInfo(b).line)}</div>` : ""}` : ""}` : ""}</td>
-    <td data-l="given">${(() => { const g = bookingGiven(b); return b.status === "cancelled" ? "—" : `<span class="chip ${g.cls}">🍽 ${g.label}</span>`; })()}</td>
+    <td data-l="given">${(() => { const g = bookingGiven(b); return b.status === "cancelled" ? "—" : `<button class="chip ${g.cls} chipbtn" type="button" data-gv="${b.id}" title="Meals given · mark given / not given">🍽 ${g.label}</button>`; })()}</td>
     <td data-l="pass">${b.pass_type === "mobile" ? `<span class="small">📱 Mobile</span> <span class="small muted">${b.wa_sent_at ? "WA ✓ " : ""}${b.email_sent_at ? "Email ✓" : ""}${!b.wa_sent_at && !b.email_sent_at ? "Not sent" : ""}</span>` : `<span class="small">🖨️ Printed</span> <span class="small muted">${b.printed_at ? "Printed ✓" : "Not printed"}</span>`}</td>
     <td data-l="act"><div class="row" style="flex-wrap:nowrap"><button class="btn sm" data-pass="${b.id}" type="button">Send / view</button>${st.k === "pending" || st.k === "upi" ? `<button class="btn sm primary" data-pay="${b.id}" type="button">Mark paid</button>` : ""}${st.k === "paid" ? `<button class="btn sm" data-unpay="${b.id}" type="button">Undo paid</button>` : ""}${b.refund_status === "due" ? `<button class="btn sm primary" data-refund="${b.id}" type="button">Refund</button>` : ""}${st.k === "cancelled" ? (b.refund_status === "refunded" ? "" : `<button class="btn sm" data-restore="${b.id}" type="button">Restore</button>`) : `<button class="btn sm danger" data-cancel="${b.id}" type="button">Cancel</button>`}</div></td>
   </tr>`; }).join("")}</tbody></table></div>`;
@@ -1031,9 +1037,12 @@ function renderBookings() {
   $$("[data-pass]", box).forEach(b => b.onclick = () => passSheet(find(b.dataset.pass)));
   $$("[data-pay]", box).forEach(b => b.onclick = () => payForm(find(b.dataset.pay)));
   const rpc = async (fn, id, msg) => { const { error } = await sb.rpc(fn, { p_booking: id }); if (error) toast(errMsg(error)); else { toast(msg); reloadSoon(); } };
-  $$("[data-unpay]", box).forEach(b => arm(b, () => rpc("undo_paid", b.dataset.unpay, "Payment entry removed"), "Confirm undo"));
-  $$("[data-cancel]", box).forEach(b => arm(b, () => rpc("cancel_booking", b.dataset.cancel, "Booking cancelled"), "Confirm cancel"));
-  $$("[data-restore]", box).forEach(b => b.onclick = () => rpc("restore_booking", b.dataset.restore, "Booking restored"));
+  const withReason = async (fn, id, title, ok, msg) => { const bk = find(id); const why = await askReason(title, bk ? `<b>${esc(bk.flat)} · ${esc(bk.name)}</b> · <span class="mono">${esc(bk.pass_no)}</span>${bk.status === "paid" && +bk.amount > 0 ? "<br>" + esc(payWho(bk)) + " · " + inr(bk.paid_amount != null ? bk.paid_amount : bk.amount) : ""}` : "", ok); if (!why) return;
+    const { error } = await sb.rpc(fn, { p_booking: id, p_reason: why }); if (error) toast(errMsg(error)); else { toast(msg); reloadSoon(); } };
+  $$("[data-unpay]", box).forEach(b => b.onclick = () => withReason("undo_paid", b.dataset.unpay, "Undo payment", "Undo payment", "Payment undone · logged"));
+  $$("[data-cancel]", box).forEach(b => b.onclick = () => withReason("cancel_booking", b.dataset.cancel, "Cancel booking", "Cancel booking", "Booking cancelled · logged"));
+  $$("[data-restore]", box).forEach(b => b.onclick = () => withReason("restore_booking", b.dataset.restore, "Restore booking", "Restore", "Booking restored · logged"));
+  $$("[data-gv]", box).forEach(b => b.onclick = () => passSheet(find(b.dataset.gv), "#gvPanel"));
   $$("[data-refund]", box).forEach(b => b.onclick = () => refundForm(find(b.dataset.refund)));
   drawBulk();
 }
@@ -1054,13 +1063,75 @@ async function bulkEmail(list, btn) {
   for (const b of list) { btn.textContent = `Sending ${ok + 1}/${list.length}…`; if (await emailPass(b)) ok++; else break; }
   toast(`${ok} of ${list.length} emailed`); btn.disabled = false; reloadSoon();
 }
+/* ── compulsory reason for every reversal (audit trail) ── */
+function askReason(title, what, okLabel) {
+  return new Promise(res => {
+    const old = $("#rsnOvl"); if (old) old.remove();
+    const o = document.createElement("div"); o.className = "ovl rsn"; o.id = "rsnOvl";
+    o.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><header><div><div class="muted small">Reason required · audit trail</div><h2>${esc(title)}</h2></div><button class="x" type="button" aria-label="Close">×</button></header>
+      ${what ? `<div class="notice small">${what}</div>` : ""}
+      <div class="field"><label for="rsnTxt">Why? <span class="gu">કારણ લખો</span> (required)</label><textarea id="rsnTxt" maxlength="500" placeholder="e.g. Scanned the wrong pass / Payment entered for the wrong flat"></textarea></div>
+      <div class="wholine small"><svg class="ic sm"><use href="#i-user"/></svg><span>Recorded as <b>${esc(meName())}</b> · ${fdt(new Date().toISOString())}. This entry cannot be edited or removed.</span></div>
+      <div class="err" id="rsnErr"></div>
+      <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="rsnNo">Back</button><button class="btn danger" type="button" id="rsnOk">${esc(okLabel || "Confirm")}</button></div></div>`;
+    document.body.appendChild(o);
+    const done = v => { o.remove(); res(v); };
+    o.addEventListener("click", e => { if (e.target === o) done(null); });
+    $(".x", o).onclick = () => done(null); $("#rsnNo", o).onclick = () => done(null);
+    $("#rsnOk", o).onclick = () => { const t = $("#rsnTxt", o).value.trim(); if (t.length < 3) { $("#rsnErr", o).textContent = "Please write the reason."; return; } done(t); };
+    setTimeout(() => $("#rsnTxt", o).focus(), 50);
+  });
+}
+const AUDIT_LABEL = { undo_paid: "Payment undone", not_given: "Marked not given", restore: "Booking restored", cancel: "Cancelled by committee", no_refund: "No refund", revoke_committee: "Committee access removed" };
+function auditDetails(a) {
+  const d = a.details || {};
+  if (a.action === "undo_paid") return `Was: ${MODE[d.mode] || d.mode || ""} ${d.amount != null ? inr(d.amount) : ""}${d.cash_received_by ? " · received by " + d.cash_received_by : ""}${d.marked_by ? " · marked by " + d.marked_by : ""}${d.paid_at ? " · " + fdt(d.paid_at) : ""}`;
+  if (a.action === "not_given") return `${d.session || ""}: ${(d.removed || []).map(r => "person " + r.person + " (given " + hm(r.given_at) + (r.given_by ? " by " + r.given_by : "") + ")").join(", ")}`;
+  if (a.action === "restore") return `Was cancelled${d.cancelled_by ? " by " + d.cancelled_by : ""}${d.cancelled_at ? " on " + fdt(d.cancelled_at) : ""}`;
+  if (a.action === "cancel") return `Status before: ${d.status_before || ""}${d.paid_amount ? " · paid " + inr(d.paid_amount) : ""}`;
+  if (a.action === "no_refund") return `Refund of ${inr(d.amount || 0)} not given`;
+  if (a.action === "revoke_committee") return `Member: ${d.name || ""}`;
+  return "";
+}
+function auditRow(a, showPass) {
+  const b = a.booking_id && S.bookings.find(x => x.id === a.booking_id);
+  return `<div class="arow"><div class="spread"><b>${esc(AUDIT_LABEL[a.action] || a.action)}</b><span class="small muted">${fdt(a.at)}</span></div>
+    <div class="small">by <b>${esc(a.actor_name || "—")}</b>${showPass && (b || a.pass_no) ? ` · ${b ? esc(b.flat) + " · " : ""}<span class="mono">${esc(a.pass_no || "")}</span>` : ""}</div>
+    <div class="small">Reason: <i>${esc(a.reason)}</i></div>${auditDetails(a) ? `<div class="small muted">${esc(auditDetails(a))}</div>` : ""}</div>`;
+}
+/* meals given for one booking, with mark given / not given (committee) */
+function givenPanel(b) {
+  const ev = evById(b.event_id) || {}, ss = (ev.sessions || []).filter(s => b.sessions.includes(s.id));
+  if (!ss.length || b.status === "cancelled") return "";
+  const gm = S.checkins[b.id] || {}, staffName = id => { const p = (S.profiles || {})[id]; return p ? (p.name || "").trim() : ""; };
+  return `<div class="panel" id="gvPanel"><h3 style="margin-bottom:6px">Meals given</h3>
+    <p class="small muted" style="margin:0 0 8px">Tap a person to mark given. To reverse, use <b>Mark not given</b> — a reason is required.</p>
+    ${ss.map(s => `<div class="srow"><div class="spread"><span>${esc(s.label || s.meal)} · ${fd(s.date)}${s.date === today() ? ' <span class="chip gold">Today</span>' : ""}</span><span class="small muted">${Object.keys(gm[s.id] || {}).length}/${b.adults + b.children} given</span></div>
+      <div class="gvlist">${persons(b).map(p => { const g = (gm[s.id] || {})[p.n];
+        return g ? `<div class="gv done"><span><b>${p.type} ${p.n}</b> ✓ ${hm(g.at)}${staffName(g.by) ? " · by " + esc(staffName(g.by)) : ""}</span><button class="btn sm danger" type="button" data-ungive="${b.id}|${s.id}|${p.n}">Mark not given</button></div>`
+                 : `<div class="gv"><span><b>${p.type} ${p.n}</b> <span class="muted small">not given</span></span>${b.status === "paid" ? `<button class="btn sm" type="button" data-give="${b.id}|${s.id}|${p.n}">Mark given</button>` : `<span class="small muted">payment due</span>`}</div>`; }).join("")}</div></div>`).join("")}
+  </div>`;
+}
+async function setGiven(bid, sid, ns, on, label) {
+  let reason = null;
+  if (!on) { const b = S.bookings.find(x => x.id === bid) || {}, ev = evById(b.event_id) || {}, s = (ev.sessions || []).find(x => x.id === sid) || {};
+    reason = await askReason("Mark not given", `<b>${esc(label || "Person " + ns.join(", "))}</b> · ${esc(b.flat || "")} · ${esc(s.label || s.meal || "")} ${fd(s.date)}<br>The hand-over is removed and the meal can be given again.`, "Mark not given");
+    if (!reason) return false; }
+  const { error } = await sb.rpc("set_given", { p_booking: bid, p_session: sid, p_persons: ns, p_given: on, p_reason: reason });
+  if (error) { toast(errMsg(error)); return false; }
+  toast(on ? "Marked given" : "Marked not given · logged"); return true;
+}
+function wireGiven(box, after) {
+  $$("[data-give]", box).forEach(btn => btn.onclick = async () => { const [b, s, n] = btn.dataset.give.split("|"); if (await setGiven(b, s, [+n], true)) after && after(); });
+  $$("[data-ungive]", box).forEach(btn => btn.onclick = async () => { const [b, s, n] = btn.dataset.ungive.split("|"); const bk = S.bookings.find(x => x.id === b); if (await setGiven(b, s, [+n], false, bk ? persons(bk)[+n - 1].type + " " + n : "")) after && after(); });
+}
 function refundForm(b) {
   if (!b) return;
   const o = openSheet(`<header><div><div class="muted small">Refund · ${esc(cancelInfo(b))}</div><h2>${esc(b.flat)} · ${esc(b.name)}</h2><div class="mono small muted">${esc(b.pass_no)}</div></div><button class="x" type="button" aria-label="Close">×</button></header>
     <div class="prevbox"><div class="sumrow"><span>Paid</span><span>${esc(MODE[b.pay_mode] || "")}${b.collected_by_name ? " · received by " + esc(b.collected_by_name) : ""}</span><b class="num">${inr(b.refund_amount || 0)}</b></div></div>
     <div class="field"><span class="lab">Refund</span><div class="seg"><label><input type="radio" name="rfY" value="1" checked> Money returned</label><label><input type="radio" name="rfY" value="0"> No refund</label></div></div>
     <div class="field"><label for="rfRef">How / note</label><input id="rfRef" type="text" maxlength="120" placeholder="e.g. Cash returned by Sachin / UPI UTR 4123…"></div>
-    <div class="who small"><svg class="ic sm"><use href="#i-user"/></svg><span>Recorded by <b>${esc(meName())}</b> · ${fdt(new Date().toISOString())}</span></div>
+    <div class="wholine small"><svg class="ic sm"><use href="#i-user"/></svg><span>Recorded by <b>${esc(meName())}</b> · ${fdt(new Date().toISOString())}</span></div>
     <div class="err" id="rfErr"></div>
     <div class="row" style="justify-content:flex-end"><button class="btn x2" type="button">Cancel</button><button class="btn primary" type="button" id="rfGo">Save</button></div>`);
   $(".x2", o).onclick = closeSheet;
@@ -1086,7 +1157,7 @@ function payForm(b, many) {
     <div class="pm pm-other"><div class="field"><label for="pyNote">How was it paid? (required)</label><input id="pyNote" type="text" maxlength="120" placeholder="e.g. Cheque 004512 HDFC / NEFT / adjusted in maintenance"></div></div>
     <div class="pm pm-waived"><div class="field"><label for="pyWhy">Reason (optional)</label><input id="pyWhy" type="text" maxlength="120" placeholder="e.g. Volunteer / guest of society"></div></div>
     <div class="pm pm-cash pm-other"><div class="field"><label for="pyRef">Receipt no. (optional)</label><input id="pyRef" type="text" maxlength="40"></div></div>
-    <div class="who small" id="pyWho"></div>
+    <div class="wholine small" id="pyWho"></div>
     <div class="err" id="pyErr"></div>
     <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="pyC">Cancel</button><button class="btn primary" type="button" id="pyGo">${one ? "Mark paid" : "Mark " + list.length + " paid"}</button></div>`);
   const mode = () => $("input[name=pyM]:checked", o).value;
@@ -1123,18 +1194,18 @@ function sessRows(b, sessions, givenMap, okToServe, focusN) {
   return sessions.map(s => {
     const ps = persons(b), left = ps.filter(p => !(givenMap[s.id] || {})[p.n]);
     const chips = ps.map(p => { const d = (givenMap[s.id] || {})[p.n], f = focusN === p.n ? " focus" : "";
-      return d ? `<button class="pchip done${f}" type="button" data-unserve="${b.id}|${s.id}|${p.n}" title="Tap to undo">${p.type} ${p.n} ✓ ${hm(d.at)}</button>`
+      return d ? `<button class="pchip done${f}" type="button" data-unserve="${b.id}|${s.id}|${p.n}" title="Tap to mark not given (reason needed)">${p.type} ${p.n} ✓ ${hm(d.at)} <span class="undo">↺</span></button>`
                : `<button class="pchip${f}" type="button" data-serve="${b.id}|${s.id}|${p.n}"${okToServe ? "" : " disabled"}>${p.type} ${p.n}</button>`; }).join("");
     return `<div class="srow"><div class="spread"><span>${esc(s.label || s.meal)} · ${fd(s.date)}${s.date === today() ? ' <span class="chip gold">Today</span>' : ""}</span>
       <span class="small muted">${ps.length - left.length}/${ps.length} given${left.length > 1 && okToServe ? ` · <button class="linkbtn" type="button" data-serveall="${b.id}|${s.id}|${left.map(p => p.n).join(",")}">give all ${left.length}</button>` : ""}</span></div>
-      <div class="pchips">${chips}</div></div>`;
+      <div class="pchips">${chips}</div>${ps.length - left.length ? `<div class="small muted" style="margin-top:4px">Tap a ✓ to mark <b>not given</b> (reason needed).</div>` : ""}</div>`;
   }).join("");
 }
 function wireServe(box, after) {
-  const call = async (bid, sid, ns, on) => { const { error } = await sb.rpc("set_given", { p_booking: bid, p_session: sid, p_persons: ns, p_given: on }); if (error) toast(errMsg(error)); after && after(); };
+  const call = async (bid, sid, ns, on) => { if (await setGiven(bid, sid, ns, on, "Person " + ns.join(", "))) after && after(); };
   $$("[data-serve]", box).forEach(btn => btn.onclick = () => { const [b, s, n] = btn.dataset.serve.split("|"); call(b, s, [+n], true); });
   $$("[data-serveall]", box).forEach(btn => arm(btn, () => { const [b, s, ns] = btn.dataset.serveall.split("|"); call(b, s, ns.split(",").map(Number), true); }, "confirm"));
-  $$("[data-unserve]", box).forEach(btn => arm(btn, () => { const [b, s, n] = btn.dataset.unserve.split("|"); call(b, s, [+n], false); }, "Undo?"));
+  $$("[data-unserve]", box).forEach(btn => btn.onclick = () => { const [b, s, n] = btn.dataset.unserve.split("|"); call(b, s, [+n], false); });
 }
 function renderCounter() {
   eventSelect($("#ctEvent"));
@@ -1296,7 +1367,10 @@ function renderReports() {
         <dt>Cancelled</dt><dd class="num">${r.cancelled}${r.autoCancelled ? ` (${r.autoCancelled} auto, unpaid)` : ""}</dd>
         ${r.refundDueN ? `<dt>Refunds due</dt><dd class="num" style="color:var(--warn)"><b>${inr(r.refundDue)}</b> (${r.refundDueN})</dd>` : ""}${r.refunded ? `<dt>Refunded</dt><dd class="num">${inr(r.refunded)}</dd>` : ""}</dl>
         ${policyBox(ev, null, "rules for this event")}</div>
-    ${collectorTable(r)}`;
+    ${collectorTable(r)}
+    ${(() => { const h = (S.audit || []).filter(a => a.event_id === ev.id); return `<div class="panel" style="margin-top:12px" id="rpAudit"><h3>Audit trail · reversals</h3>
+      <p class="small muted" style="margin:4px 0 10px">Every undo, cancel, restore, “not given” and “no refund” with who did it and why. Entries cannot be edited or removed.</p>
+      ${h.length ? h.slice(0, 100).map(a => auditRow(a, true)).join("") : `<p class="small muted" style="margin:0">No reversals for this event.</p>`}</div>`; })()}`;
   $("#prNew").onclick = () => printPasses(unprinted); $("#prReady").onclick = () => printPasses(ready); $("#prAll").onclick = () => printPasses(bs);
   if (mobReady.length) arm($("#mlAll"), () => bulkEmail(mobReady, $("#mlAll")), "Confirm: email " + mobReady.length);
   $("#xlOne").onclick = () => excel([ev]); $("#xlAll").onclick = () => excel(S.events.slice());
@@ -1358,6 +1432,9 @@ async function excel(evs) {
   XLSX.utils.book_append_sheet(wb, sheet(rows), "All bookings");
   const coll = []; evs.forEach(ev => Object.values(evStats(ev).byCollector).forEach(c => coll.push({ "Event": ev.name_en || ev.name_gu, "Committee member": c.name, "Cash received (₹)": c.cash, "Cash bookings": c.cashN, "UPI verified (₹)": c.upi, "UPI bookings": c.upiN, "Other (₹)": c.other, "Other bookings": c.otherN, "Total (₹)": c.cash + c.upi + c.other })));
   XLSX.utils.book_append_sheet(wb, sheet(coll), "Collected by");
+  const aud = (S.audit || []).filter(a => !a.event_id || ids.has(a.event_id)).map(a => { const b = a.booking_id && S.bookings.find(x => x.id === a.booking_id), ev = evById(a.event_id) || {};
+    return { "When": fdt(a.at), "Action": AUDIT_LABEL[a.action] || a.action, "By": a.actor_name || "", "Reason": a.reason, "Event": ev.name_en || ev.name_gu || "", "Flat": b ? b.flat : "", "Pass no.": a.pass_no || "", "Details": auditDetails(a) }; });
+  XLSX.utils.book_append_sheet(wb, sheet(aud), "Audit trail");
   const per = []; bks.filter(active).forEach(b => { const ev = evById(b.event_id) || {}; persons(b).forEach(p => { const row = { "Event": ev.name_en || ev.name_gu, "Person pass no.": tok(b, p.n), "Flat": b.flat, "Booked by": b.name, "Person": p.type + " " + p.n, "Status": bStatus(b).label };
     (ev.sessions || []).filter(s => b.sessions.includes(s.id)).forEach(s => { const g = given(b, s.id, p.n); row[(s.label || s.meal) + " (" + fd(s.date) + ")"] = g ? "Given " + hm(g.at) : ""; }); per.push(row); }); });
   XLSX.utils.book_append_sheet(wb, sheet(per), "Person passes");
@@ -1395,7 +1472,7 @@ function renderAccess() {
   const go = async (fn, args, msg) => { const { error } = await sb.rpc(fn, args); if (error) toast(errMsg(error)); else { toast(msg); reloadSoon(); } };
   $$("[data-ok]", box).forEach(b => b.onclick = () => go("decide_committee", { p_user: b.dataset.ok, p_approve: true }, "Approved"));
   $$("[data-no]", box).forEach(b => arm(b, () => go("decide_committee", { p_user: b.dataset.no, p_approve: false }, "Request rejected"), "Confirm reject"));
-  $$("[data-rv]", box).forEach(b => arm(b, () => go("revoke_committee", { p_user: b.dataset.rv }, "Access revoked"), "Confirm revoke"));
+  $$("[data-rv]", box).forEach(b => b.onclick = async () => { const p = P(b.dataset.rv); const why = await askReason("Remove committee access", `<b>${who(p)}</b> will lose committee access.`, "Remove access"); if (why) go("revoke_committee", { p_user: b.dataset.rv, p_reason: why }, "Access removed · logged"); });
 }
 
 /* ───────────── routing ───────────── */

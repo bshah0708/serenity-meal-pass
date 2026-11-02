@@ -24,7 +24,7 @@
       { id: s2, event_id: ev1, label: "Day 2", date: d(1), meal: "Dinner", sort: 1 },
       { id: s3, event_id: ev2, label: "Republic Day", date: d(40), meal: "Snacks", sort: 0 },
     ],
-    bookings: [], booking_sessions: [], checkins: [],
+    bookings: [], booking_sessions: [], checkins: [], audit_log: [],
   };
   const bk = (user, flat, name, mob, sess, a, c, status, extra) => {
     const id = uuid(), [blk, no] = flat.split("-");
@@ -60,7 +60,7 @@
     const api = {
       select(s) { if (q.op === "select") q.sel = s || "*"; else q.ret = true; return api; },
       eq(k, v) { q.filters.push(r => r[k] === v); return api; }, in(k, v) { q.filters.push(r => v.includes(r[k])); return api; },
-      order() { return api; }, range(a) { q.page = a; return api; }, single() { q.one = 1; return api; }, maybeSingle() { q.one = 2; return api; },
+      order() { return api; }, limit() { return api; }, range(a) { q.page = a; return api; }, single() { q.one = 1; return api; }, maybeSingle() { q.one = 2; return api; },
       insert(p) { q.op = "insert"; q.payload = p; return api; }, update(p) { q.op = "update"; q.payload = p; return api; }, delete() { q.op = "delete"; return api; },
       upsert(p) { q.op = "upsert"; q.payload = p; return api; },
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
@@ -93,6 +93,7 @@
     },
     submit_upi_ref(a) { B(a.p_booking).upi_ref = a.p_ref; },
     cancel_booking(a) {
+      if (staff() && B(a.p_booking).user_id !== me.id) rpcs.__audit("cancel", a);
       const b = B(a.p_booking), e = T.events.find(x => x.id === b.event_id), nm = (T.profiles.find(x => x.id === me.id) || {}).name;
       if (!staff() && b.status === "paid" && +b.amount > 0) {
         if (e.cancel_paid !== "until") throw new Error("Paid passes for this event cannot be cancelled");
@@ -114,14 +115,16 @@
         paid_by: me.id, paid_by_name: nm(me.id), collected_by: a.p_mode === "cash" && !a.p_collected_name ? (a.p_collected_by || me.id) : null, collected_by_name: c });
       return { marked_by: nm(me.id), collected_by: c };
     },
-    undo_paid(a) { Object.assign(B(a.p_booking), { status: "pending", pay_mode: null, paid_at: null, paid_by_name: null, collected_by_name: null, pay_ref: null, pay_note: null }); },
-    restore_booking(a) { B(a.p_booking).status = "pending"; },
+    __audit(action, a, details) { if (!a.p_reason || a.p_reason.trim().length < 3) throw new Error("Please write the reason"); const b = a.p_booking && B(a.p_booking);
+      T.audit_log.unshift({ id: T.audit_log.length + 1, at: new Date().toISOString(), actor: me.id, actor_name: (T.profiles.find(x => x.id === me.id) || {}).name, action, booking_id: b ? b.id : null, event_id: b ? b.event_id : null, pass_no: b ? b.pass_no : null, reason: a.p_reason, details: details || {} }); },
+    undo_paid(a) { rpcs.__audit("undo_paid", a, { mode: B(a.p_booking).pay_mode, amount: B(a.p_booking).paid_amount, cash_received_by: B(a.p_booking).collected_by_name }); Object.assign(B(a.p_booking), { status: "pending", pay_mode: null, paid_at: null, paid_by_name: null, collected_by_name: null, pay_ref: null, pay_note: null }); },
+    restore_booking(a) { rpcs.__audit("restore", a); B(a.p_booking).status = "pending"; },
     mark_sent(a) { const b = B(a.p_booking); if (a.p_channel === "print") b.printed_at = new Date().toISOString(); if (a.p_channel === "whatsapp") b.wa_sent_at = new Date().toISOString(); },
     event_availability(a) { const e = T.events.find(x => x.id === a.p_event); return { capacity: e.capacity, booked: T.bookings.filter(b => b.event_id === e.id).reduce((s, b) => s + b.adults + b.children, 0) }; },
     request_committee_access(a) { T.staff_requests.push({ user_id: me.id, note: a.p_note, status: "pending", requested_at: new Date().toISOString() }); },
     decide_committee(a) { const r = T.staff_requests.find(x => x.user_id === a.p_user); r.status = a.p_approve ? "approved" : "rejected"; if (a.p_approve) T.staff.push({ user_id: a.p_user, role: "committee", active: true, approved_at: new Date().toISOString() }); },
-    revoke_committee(a) { T.staff.find(s => s.user_id === a.p_user).active = false; },
-    set_given(a) { a.p_persons.forEach(n => { const i = T.checkins.findIndex(c => c.booking_id === a.p_booking && c.session_id === a.p_session && c.person_no === n); if (a.p_given && i < 0) T.checkins.push({ booking_id: a.p_booking, session_id: a.p_session, person_no: n, given_at: new Date().toISOString() }); if (!a.p_given && i >= 0) T.checkins.splice(i, 1); }); },
+    revoke_committee(a) { rpcs.__audit("revoke_committee", a); T.staff.find(s => s.user_id === a.p_user).active = false; },
+    set_given(a) { if (!a.p_given) rpcs.__audit("not_given", a, { session: "Day 1", removed: a.p_persons.map(n => ({ person: n, given_at: new Date().toISOString() })) }); a.p_persons.forEach(n => { const i = T.checkins.findIndex(c => c.booking_id === a.p_booking && c.session_id === a.p_session && c.person_no === n); if (a.p_given && i < 0) T.checkins.push({ booking_id: a.p_booking, session_id: a.p_session, person_no: n, given_at: new Date().toISOString() }); if (!a.p_given && i >= 0) T.checkins.splice(i, 1); }); },
     public_pass(a) {
       const t = a.p_token; let b = T.bookings.find(x => x.pass_no === t), n = 0;
       if (!b) { const m = t.match(/^(.*)-(\d{1,2})$/); if (m) { b = T.bookings.find(x => x.pass_no === m[1]); n = +m[2]; } }
